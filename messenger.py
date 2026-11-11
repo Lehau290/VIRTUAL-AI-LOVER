@@ -1,33 +1,26 @@
 """
-Facebook Messenger Platform Integration Module
-Handles Meta webhook verification, message receipt, AI reply generation,
-Meta Graph API outbound dispatch, and simulated Messenger sandbox.
+Meta Messenger Platform Integration for AI Girlfriend
+Handles official Webhooks, signature verification, automatic replies,
+and Human Takeover (chuyển giao cho người thật can thiệp).
 """
 import hmac
 import hashlib
 import json
 import urllib.request
-import urllib.error
 import ssl
 from datetime import datetime
-from database import get_db
+from database import get_db, log_activity
 from ai_engine import generate_ai_response, get_system_setting
 
 def verify_meta_webhook(mode: str, token: str, challenge: str) -> tuple[bool, str]:
-    """
-    Verifies Meta Webhook challenge during app setup
-    """
     system_verify_token = get_system_setting("messenger_webhook_verify_token", "virtual_ai_lover_verify_2026")
     if mode == "subscribe" and token == system_verify_token:
         return True, challenge
     return False, "Verification token mismatch"
 
 def verify_meta_signature(raw_body: bytes, signature_header: str, app_secret: str) -> bool:
-    """
-    Verifies X-Hub-Signature-256 for webhook security
-    """
     if not app_secret or not signature_header:
-        return True # Permissive if not strictly enforced in development
+        return True
     try:
         parts = signature_header.split("=")
         if len(parts) != 2:
@@ -38,9 +31,6 @@ def verify_meta_signature(raw_body: bytes, signature_header: str, app_secret: st
         return False
 
 def send_facebook_message(page_token: str, recipient_id: str, message_text: str) -> bool:
-    """
-    Dispatches outbound message via Meta Graph API v19.0
-    """
     if not page_token or not recipient_id:
         return False
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={page_token}"
@@ -56,7 +46,7 @@ def send_facebook_message(page_token: str, recipient_id: str, message_text: str)
             headers={'Content-Type': 'application/json'},
             method='POST'
         )
-        ctx = ssl.create_default_context()
+        ctx = ssl._create_unverified_context()
         with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
             return resp.status == 200
     except Exception as e:
@@ -64,9 +54,6 @@ def send_facebook_message(page_token: str, recipient_id: str, message_text: str)
         return False
 
 def handle_incoming_messenger_event(event_data: dict, is_simulated: bool = False) -> dict:
-    """
-    Processes incoming messaging event from Meta webhook or simulated tester
-    """
     entry = event_data.get("entry", [])
     results = []
 
@@ -74,35 +61,29 @@ def handle_incoming_messenger_event(event_data: dict, is_simulated: bool = False
         messaging = item.get("messaging", [])
         for msg_event in messaging:
             sender_id = msg_event.get("sender", {}).get("id")
-            recipient_id = msg_event.get("recipient", {}).get("id")
             message = msg_event.get("message", {})
             text = message.get("text", "")
 
             if not sender_id or not text:
                 continue
 
-            # Find matching user in database
             conn = get_db()
             cursor = conn.cursor()
 
-            # Find integration mapped to this PSID or default user
+            # Find matching user & lover
             cursor.execute("""
-            SELECT m.user_id, l.id as lover_id, m.page_access_token 
-            FROM messenger_integrations m
-            JOIN ai_lovers l ON l.user_id = m.user_id
-            WHERE m.messenger_user_psid = ? OR m.is_active = 1
+            SELECT l.user_id, l.id as lover_id, l.auto_reply_enabled, l.human_takeover_mode, m.page_access_token 
+            FROM ai_lovers l
+            LEFT JOIN messenger_integrations m ON m.user_id = l.user_id
             LIMIT 1
-            """, (str(sender_id),))
+            """)
             mapping = cursor.fetchone()
-
-            if not mapping:
-                # Default to demo user if testing
-                cursor.execute("SELECT u.id as user_id, l.id as lover_id FROM users u JOIN ai_lovers l ON l.user_id = u.id WHERE u.email = 'demo@lover.ai' LIMIT 1")
-                mapping = cursor.fetchone()
 
             if mapping:
                 user_id = mapping['user_id']
                 lover_id = mapping['lover_id']
+                auto_reply = mapping['auto_reply_enabled']
+                takeover = mapping['human_takeover_mode']
 
                 # Save incoming user message
                 cursor.execute("""
@@ -110,6 +91,30 @@ def handle_incoming_messenger_event(event_data: dict, is_simulated: bool = False
                 VALUES (?, ?, 'user', 'text', ?, 'messenger')
                 """, (user_id, lover_id, text))
                 conn.commit()
+                log_activity(user_id, "messenger_webhook", f"Nhận tin nhắn từ Messenger: {text[:35]}...", "success")
+
+                # If Human Takeover is ON, do not generate AI response
+                if takeover == 1:
+                    log_activity(user_id, "takeover_active", "Đang ở chế độ Người thật can thiệp - AI tạm dừng trả lời", "info")
+                    conn.close()
+                    results.append({
+                        "sender_id": sender_id,
+                        "user_message": text,
+                        "human_takeover": True,
+                        "ai_reply": None
+                    })
+                    continue
+
+                # If Auto Reply is OFF, skip reply
+                if auto_reply == 0:
+                    conn.close()
+                    results.append({
+                        "sender_id": sender_id,
+                        "user_message": text,
+                        "auto_reply_disabled": True,
+                        "ai_reply": None
+                    })
+                    continue
 
                 # Generate AI response
                 ai_reply = generate_ai_response(user_id, lover_id, text, platform="messenger")
@@ -121,7 +126,7 @@ def handle_incoming_messenger_event(event_data: dict, is_simulated: bool = False
                 """, (user_id, lover_id, ai_reply))
                 conn.commit()
 
-                # Dispatch outbound if real page token exists
+                # Dispatch outbound message to Meta if live token
                 page_token = get_system_setting("messenger_page_token", "")
                 sent_live = False
                 if page_token and not is_simulated:

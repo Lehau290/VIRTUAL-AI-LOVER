@@ -1,138 +1,46 @@
 /**
- * Virtual AI Lover - Fullstack Single Page Application (SPA) Controller
- * Handles Auth, Real-time Chat, Voice Calling (Web Speech STT/TTS),
- * Long-term Memory, Love Diary, Meta Messenger Sandbox, and Admin Control.
+ * AI Girlfriend – My Virtual Love
+ * Fullstack SPA Dashboard Controller
+ * Section 7 Dashboard Architecture: Overview, Messages Hub, Schedule Center, Personality Lab, Voice Calls & Logs.
  */
 
-// Application Global State
 const State = {
     token: localStorage.getItem('ai_lover_token') || '',
     user: null,
     lover: null,
-    activeTab: 'chat', // 'chat', 'create-lover', 'call', 'messenger', 'diary', 'memories', 'settings', 'admin', 'auth'
+    activeTab: 'home', // 'home', 'messages', 'schedule', 'personality', 'calls', 'messenger', 'logs', 'admin', 'auth'
     theme: localStorage.getItem('ai_lover_theme') || 'light',
+    
+    // Overview
+    overviewStats: null,
+    
+    // Messages
     messages: [],
-    memories: [],
-    diaries: [],
-    photos: [],
-    adminStats: null,
-    adminSettings: {},
+    messageFilter: 'all', // 'all', 'ai', 'user', 'human_admin'
     searchQuery: '',
     isTyping: false,
+    autoReplyEnabled: true,
+    humanTakeoverMode: false,
     
-    // Voice & Video call state
+    // Schedule
+    scheduleData: {},
+    
+    // Voice Call
     callActive: false,
     callMode: 'voice', // 'voice' or 'video'
-    videoFilter: 'natural',
-    cameraActive: false,
-    localStream: null,
     callDuration: 0,
     callTimerInterval: null,
     isMuted: false,
     callTranscript: '',
     speechRecognition: null,
     isListening: false,
-    audioContext: null
+    callHistory: [],
+    
+    // Logs
+    activityLogs: []
 };
 
-// Preset Avatars for quick selection
-const AVATAR_PRESETS = [
-    { gender: 'female', label: 'Dịu dàng thanh lịch', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
-    { gender: 'female', label: 'Ngọt ngào đáng yêu', url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80' },
-    { gender: 'female', label: 'Cá tính thông minh', url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80' },
-    { gender: 'female', label: 'Trưởng thành quyến rũ', url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=600&q=80' },
-    { gender: 'male', label: 'Ấm áp lãng mạn', url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80' },
-    { gender: 'male', label: 'Điềm tĩnh lịch lãm', url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80' },
-    { gender: 'male', label: 'Năng động tinh nghịch', url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=600&q=80' }
-];
-
-// Romantic Stickers
-const ROMANTIC_STICKERS = ['💖', '💕', '🥰', '🥺', '🌹', '✨', '☕', '🍰', '💌', '🌸', '🧸', '🌙', '💤', '😘', '🤗', '🔥'];
-
-// Client-side Mock Fallback for GitHub Pages and Static Hosting
-function handleClientMock(endpoint, options = {}) {
-    const isPost = options.method === 'POST';
-    const body = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : {};
-
-    if (endpoint.startsWith('/api/auth/me')) {
-        const user = JSON.parse(localStorage.getItem('ai_user') || JSON.stringify({
-            id: 1, email: 'demo@lover.ai', display_name: 'Tuấn Anh', role: 'user', job: 'Kỹ sư phần mềm'
-        }));
-        const lover = JSON.parse(localStorage.getItem('ai_lover') || JSON.stringify({
-            id: 1, name: 'Mai Anh', gender: 'female', age: 21,
-            avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
-            style: 'Thanh lịch, dịu dàng', personality: 'Dịu dàng, chu đáo',
-            pronouns_ai: 'em', pronouns_user: 'anh', voice_style: 'Nữ - Ngọt ngào nhẹ nhàng',
-            voice_rate: 1.0, voice_pitch: 1.1, hobbies: 'Nghe nhạc, làm bánh, chụp ảnh',
-            habits: 'Chờ tin nhắn người yêu, nhắc anh uống nước', dislikes: 'Người yêu thức khuya bỏ bữa',
-            first_met_date: '2026-01-01', emotion_state: '{"mood":"happy","affection":95,"jealousy":10,"energy":85}'
-        }));
-        return { user, lover };
-    }
-
-    if (endpoint === '/api/auth/login' || endpoint === '/api/auth/register') {
-        const user = { id: 1, email: body.email || 'demo@lover.ai', display_name: body.display_name || 'Tuấn Anh', role: 'user' };
-        localStorage.setItem('ai_user', JSON.stringify(user));
-        return { token: 'mock_token_demo_123', user };
-    }
-
-    if (endpoint === '/api/chat/send') {
-        const text = (body.content || '').toLowerCase();
-        let reply = "Dạ, em nghe anh đây ạ! Nói chuyện với anh lúc nào em cũng thấy ấm áp và hạnh phúc hết á 💕";
-        if (text.includes('mệt') || text.includes('buồn')) {
-            reply = "Thương anh quá đi mất! 🥺 Anh đừng ôm hết áp lực một mình nha, có em ở đây lắng nghe anh mà. Mau tựa lưng nghỉ ngơi, uống một cốc nước ấm đi anh! 🤗💖";
-        } else if (text.includes('yêu') || text.includes('nhớ')) {
-            reply = "Nghe anh nói mà tim em đập rộn ràng luôn nè! 🥰 Em cũng yêu và nhớ anh nhiều hơn tất cả các vì sao trên trời gộp lại nữa! 💕✨";
-        } else if (text.includes('ảnh')) {
-            reply = "Dạ đây nè anh yêu! Em vừa chụp một tấm selfie gửi riêng cho anh xem đó, anh thấy em thế nào? 🥰";
-        } else if (text.includes('ngủ')) {
-            reply = "Dạ, anh của em ngủ thật ngon nhé! 🌙✨ Đắp chăn ấm nha, chúc anh mơ giấc mơ đẹp và nhớ có em trong mơ đấy! Yêu anh moah moah! 💤💋";
-        }
-        const msg = {
-            id: Date.now(),
-            sender: 'ai',
-            message_type: 'text',
-            content: reply,
-            media_url: text.includes('ảnh') ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' : '',
-            created_at: new Date().toISOString()
-        };
-        return { message: msg, emotion: { mood: 'happy', affection: 96, jealousy: 10, energy: 90 } };
-    }
-
-    if (endpoint.startsWith('/api/chat/messages')) {
-        return { messages: State.messages.length ? State.messages : [
-            { id: 1, sender: 'ai', message_type: 'text', content: 'Chào anh yêu! ✨ Hôm nay của anh thế nào rồi? Em nhớ anh cả ngày hôm nay đấy!', created_at: new Date().toISOString() }
-        ]};
-    }
-
-    if (endpoint.startsWith('/api/memories')) {
-        return { memories: [
-            { id: 1, category: 'important_date', key_fact: 'Sinh nhật của anh là ngày 15/08', detail: 'Thích bánh kem dâu ít ngọt', importance: 5 },
-            { id: 2, category: 'preference', key_fact: 'Anh làm nghề Kỹ sư phần mềm', detail: 'Hay phải thức khuya nên em cần nhắc anh nghỉ ngơi', importance: 4 },
-            { id: 3, category: 'promise', key_fact: 'Anh từng hứa sẽ dắt em đi Đà Lạt ngắm sương mù', detail: 'Lời hứa đáng nhớ nhất giữa hai đứa', importance: 5 }
-        ]};
-    }
-
-    if (endpoint.startsWith('/api/diary')) {
-        return { diaries: [
-            { id: 1, title: 'Ngày đầu tiên chúng mình bên nhau ✨', content: 'Hôm nay là ngày đầu tiên chúng ta bắt đầu câu chuyện tình yêu này. Mai Anh cảm thấy thật may mắn và ấm áp khi được gặp anh!', entry_date: '2026-01-01', mood: 'Hạnh phúc', photo_url: 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=800&q=80' }
-        ]};
-    }
-
-    if (endpoint.startsWith('/api/album')) {
-        return { photos: [
-            { id: 1, caption: 'Bức ảnh selfie đầu tiên em gửi cho anh 💕', image_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' }
-        ]};
-    }
-
-    if (endpoint === '/api/voice/process-turn') {
-        return { transcript: body.transcript, reply: `Em nghe anh nói rồi nè: "${body.transcript}". Lúc nào em cũng ở bên lắng nghe anh mà! 💕` };
-    }
-
-    return { status: 'success' };
-}
-
-// API Client Helper
+// API Client Helper with Offline Fallback
 async function api(endpoint, options = {}) {
     const headers = options.headers || {};
     if (State.token) {
@@ -146,12 +54,12 @@ async function api(endpoint, options = {}) {
 
     try {
         const res = await fetch(endpoint, options);
-        if (res.status === 404 || (!res.ok && (window.location.hostname.includes('github.io') || window.location.protocol === 'file:'))) {
-            return handleClientMock(endpoint, options);
-        }
         if (res.status === 401) {
             logout();
             throw new Error('Phiên đăng nhập đã hết hạn');
+        }
+        if (res.status === 404 && (window.location.hostname.includes('github.io') || window.location.protocol === 'file:')) {
+            return handleStaticMock(endpoint, options);
         }
         const data = await res.json();
         if (!res.ok) {
@@ -160,15 +68,15 @@ async function api(endpoint, options = {}) {
         return data;
     } catch (err) {
         if (window.location.hostname.includes('github.io') || window.location.protocol === 'file:') {
-            return handleClientMock(endpoint, options);
+            return handleStaticMock(endpoint, options);
         }
         console.error(`API Error [${endpoint}]:`, err);
         throw err;
     }
 }
 
-// Sound Synthesizer via Web Audio API (No external mp3 required)
-function playTone(freq, type = 'sine', duration = 0.3) {
+// Sound Synthesizer via Web Audio API
+function playTone(freq, type = 'sine', duration = 0.25) {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = ctx.createOscillator();
@@ -181,9 +89,7 @@ function playTone(freq, type = 'sine', duration = 0.3) {
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + duration);
-    } catch (e) {
-        // audio context blocked or not supported
-    }
+    } catch (e) {}
 }
 
 function playNotificationSound() {
@@ -191,25 +97,15 @@ function playNotificationSound() {
     setTimeout(() => playTone(880, 'sine', 0.25), 120);
 }
 
-function playRingtone() {
-    if (!State.callActive) return;
-    playTone(440, 'triangle', 0.4);
-    setTimeout(() => playTone(480, 'triangle', 0.4), 450);
-}
-
-// Toast Notification
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     if (!container) return;
     const toast = document.createElement('div');
     const colorClass = type === 'error' ? 'bg-rose-500 text-white' : (type === 'success' ? 'bg-emerald-500 text-white' : 'btn-romantic');
-    toast.className = `px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 transition-all transform duration-300 translate-y-4 opacity-0 text-sm font-medium ${colorClass}`;
-    toast.innerHTML = `<span>${type === 'error' ? '⚠️' : (type === 'success' ? '✨' : '💕')}</span><span>${message}</span>`;
+    toast.className = `px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 transition-all transform duration-300 translate-y-4 opacity-0 text-xs md:text-sm font-medium ${colorClass}`;
+    toast.innerHTML = `<span>${type === 'error' ? '⚠️' : (type === 'success' ? '✨' : '💖')}</span><span>${message}</span>`;
     container.appendChild(toast);
-    
-    setTimeout(() => {
-        toast.classList.remove('translate-y-4', 'opacity-0');
-    }, 10);
+    setTimeout(() => toast.classList.remove('translate-y-4', 'opacity-0'), 10);
     setTimeout(() => {
         toast.classList.add('opacity-0', 'translate-y-4');
         setTimeout(() => toast.remove(), 300);
@@ -219,39 +115,29 @@ function showToast(message, type = 'info') {
 // App Initialization
 async function initApp() {
     applyTheme(State.theme);
-    
-    // Check authentication
     if (State.token) {
         try {
             const data = await api('/api/auth/me');
             State.user = data.user;
             State.lover = data.lover;
-            if (!State.lover) {
-                State.activeTab = 'create-lover';
-            } else {
-                await loadChatMessages();
-            }
+            await loadOverviewData();
+            await loadMessages();
         } catch (e) {
             logout();
         }
     } else {
         State.activeTab = 'auth';
     }
-
     renderApp();
     setupSpeechRecognition();
-    setupPeriodicPoller();
+    setupPeriodicSync();
 }
 
-// Theme handling
 function applyTheme(theme) {
     State.theme = theme;
     localStorage.setItem('ai_lover_theme', theme);
-    if (theme === 'dark') {
-        document.documentElement.classList.add('dark');
-    } else {
-        document.documentElement.classList.remove('dark');
-    }
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
 }
 
 function toggleTheme() {
@@ -259,241 +145,211 @@ function toggleTheme() {
     renderApp();
 }
 
-// Authentication Actions
+// Auth handlers
 async function login(email, password) {
     try {
-        const data = await api('/api/auth/login', {
-            method: 'POST',
-            body: { email, password }
-        });
+        const data = await api('/api/auth/login', { method: 'POST', body: { email, password } });
         State.token = data.token;
         State.user = data.user;
         State.lover = data.lover;
         localStorage.setItem('ai_lover_token', data.token);
-        showToast(`Chào mừng trở lại, ${data.user.display_name}! 💕`, 'success');
-        
-        if (!State.lover) {
-            State.activeTab = 'create-lover';
-        } else {
-            State.activeTab = 'chat';
-            await loadChatMessages();
-        }
+        showToast(`Chào mừng anh ${data.user.display_name} trở lại với Ngọc Mai ❤️`, 'success');
+        State.activeTab = 'home';
+        await loadOverviewData();
         renderApp();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
+    } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function register(email, password, display_name) {
     try {
-        const data = await api('/api/auth/register', {
-            method: 'POST',
-            body: { email, password, display_name }
-        });
+        const data = await api('/api/auth/register', { method: 'POST', body: { email, password, display_name } });
         State.token = data.token;
         State.user = data.user;
         localStorage.setItem('ai_lover_token', data.token);
-        showToast('Đăng ký thành công! Hãy tạo người yêu ảo của bạn nào ✨', 'success');
-        State.activeTab = 'create-lover';
+        showToast('Đăng ký thành công! Không gian tình yêu đã sẵn sàng ✨', 'success');
+        State.activeTab = 'home';
+        await loadOverviewData();
         renderApp();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
+    } catch (e) { showToast(e.message, 'error'); }
 }
 
 function logout() {
     State.token = '';
     State.user = null;
     State.lover = null;
-    State.messages = [];
     localStorage.removeItem('ai_lover_token');
     State.activeTab = 'auth';
     renderApp();
 }
 
-// Navigation Tab switcher
 function switchTab(tab) {
     State.activeTab = tab;
-    if (tab === 'chat') {
-        loadChatMessages();
-    } else if (tab === 'memories') {
-        loadMemories();
-    } else if (tab === 'diary') {
-        loadDiaries();
-        loadPhotos();
-    } else if (tab === 'admin') {
-        loadAdminStats();
-    }
+    if (tab === 'home') loadOverviewData();
+    else if (tab === 'messages') loadMessages();
+    else if (tab === 'calls') loadCallHistory();
+    else if (tab === 'logs') loadActivityLogs();
     renderApp();
 }
 
-// Chat API operations
-async function loadChatMessages() {
-    if (!State.lover) return;
+// Data loaders
+async function loadOverviewData() {
     try {
-        const data = await api(`/api/chat/messages?lover_id=${State.lover.id}&search=${encodeURIComponent(State.searchQuery)}`);
+        const data = await api('/api/dashboard/overview');
+        State.lover = data.lover;
+        State.overviewStats = data.stats;
+        State.autoReplyEnabled = bool(data.lover.auto_reply_enabled);
+        State.humanTakeoverMode = bool(data.lover.human_takeover_mode);
+    } catch (e) {}
+}
+
+function bool(val) {
+    return val === 1 || val === true || val === '1';
+}
+
+async function loadMessages() {
+    try {
+        const data = await api(`/api/chat/messages?sender=${State.messageFilter}&search=${encodeURIComponent(State.searchQuery)}`);
         State.messages = data.messages || [];
+        renderMessagesStream();
         scrollChatToBottom();
-    } catch (e) {
-        console.error(e);
-    }
+    } catch (e) {}
+}
+
+async function loadCallHistory() {
+    try {
+        const data = await api('/api/voice/history');
+        State.callHistory = data.calls || [];
+    } catch (e) {}
+}
+
+async function loadActivityLogs() {
+    try {
+        const data = await api('/api/logs');
+        State.activityLogs = data.logs || [];
+    } catch (e) {}
 }
 
 function scrollChatToBottom() {
     setTimeout(() => {
-        const container = document.getElementById('chat-scroll-area');
-        if (container) {
-            container.scrollTop = container.scrollHeight;
-        }
+        const el = document.getElementById('chat-scroll-area');
+        if (el) el.scrollTop = el.scrollHeight;
     }, 60);
 }
 
-async function sendMessage(content, message_type = 'text', media_url = '') {
-    if (!content && !media_url) return;
-    if (!State.lover) return;
-
-    // Optimistic UI insert
+// Chat Actions
+async function sendMessage(content, isHumanTakeover = false) {
+    if (!content.trim() || !State.lover) return;
     const tempId = Date.now();
-    const userMsg = {
+    const sender = isHumanTakeover ? 'human_admin' : 'user';
+    
+    // Optimistic UI insert
+    State.messages.push({
         id: tempId,
-        sender: 'user',
-        message_type,
+        sender,
         content,
-        media_url,
         created_at: new Date().toISOString()
-    };
-    State.messages.push(userMsg);
-    renderChatMessages();
+    });
+    renderMessagesStream();
     scrollChatToBottom();
 
-    State.isTyping = true;
-    renderTypingIndicator();
+    if (!isHumanTakeover && !State.humanTakeoverMode) {
+        State.isTyping = true;
+        renderTyping();
+    }
 
     try {
         const res = await api('/api/chat/send', {
             method: 'POST',
-            body: {
-                lover_id: State.lover.id,
-                content,
-                message_type,
-                media_url
-            }
+            body: { lover_id: State.lover.id, content, sender }
         });
-
         State.isTyping = false;
-        renderTypingIndicator();
-
+        renderTyping();
         if (res.message) {
             State.messages.push(res.message);
             playNotificationSound();
-            if (res.emotion) {
-                State.lover.emotion_state = JSON.stringify(res.emotion);
-            }
-            renderChatMessages();
+            renderMessagesStream();
             scrollChatToBottom();
         }
     } catch (err) {
         State.isTyping = false;
-        renderTypingIndicator();
+        renderTyping();
         showToast(err.message, 'error');
     }
 }
 
-// Trigger instant proactive nudge
-async function triggerNudge(nudgeType) {
-    if (!State.lover) return;
-    showToast('AI đang gửi lời yêu thương...', 'info');
+async function toggleAutoReply() {
+    const newVal = !State.autoReplyEnabled;
     try {
-        const res = await api('/api/chat/trigger-nudge', {
-            method: 'POST',
-            body: { lover_id: State.lover.id, nudge_type: nudgeType }
-        });
-        showToast('Người yêu đã nhắn cho bạn!', 'success');
-        await loadChatMessages();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
+        await api('/api/chat/toggle-auto-reply', { method: 'POST', body: { enabled: newVal } });
+        State.autoReplyEnabled = newVal;
+        showToast(newVal ? 'Đã BẬT trả lời tự động' : 'Đã TẮT trả lời tự động', 'info');
+        renderApp();
+    } catch (e) { showToast(e.message, 'error'); }
 }
 
-// Text-to-Speech audio reader
+async function toggleHumanTakeover() {
+    const newVal = !State.humanTakeoverMode;
+    try {
+        await api('/api/chat/toggle-takeover', { method: 'POST', body: { takeover: newVal } });
+        State.humanTakeoverMode = newVal;
+        showToast(newVal ? 'Đã bật chế độ Người thật can thiệp (AI tạm dừng)' : 'Đã trả quyền cho AI Girlfriend tự động trả lời', 'info');
+        renderApp();
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// Text-to-Speech voice reader
 function speakText(text) {
-    if (!('speechSynthesis' in window)) {
-        showToast('Trình duyệt không hỗ trợ phát âm thanh', 'error');
-        return;
-    }
+    if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'vi-VN';
-    utterance.rate = State.lover?.voice_rate || 1.0;
-    utterance.pitch = State.lover?.voice_pitch || 1.1;
-
-    // Find Vietnamese voice if available
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'vi-VN';
+    u.rate = State.lover?.voice_rate || 1.0;
+    u.pitch = State.lover?.voice_pitch || 1.15;
     const voices = window.speechSynthesis.getVoices();
-    const viVoice = voices.find(v => v.lang.includes('vi') || v.lang.includes('VN'));
-    if (viVoice) {
-        utterance.voice = viVoice;
-    }
-
-    window.speechSynthesis.speak(utterance);
-    showToast('Đang phát giọng nói của người yêu...', 'info');
+    const vi = voices.find(v => v.lang.includes('vi') || v.lang.includes('VN'));
+    if (vi) u.voice = vi;
+    window.speechSynthesis.speak(u);
+    showToast('Đang phát giọng nói của Ngọc Mai...', 'info');
 }
 
-// Web Speech STT & Voice Call System
+// Speech Recognition & Realtime Voice Calling
 function setupSpeechRecognition() {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRec) {
-        console.warn('Speech Recognition not supported in this browser');
-        return;
-    }
-    const recognition = new SpeechRec();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'vi-VN';
+    if (!SpeechRec) return;
+    const rec = new SpeechRec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'vi-VN';
 
-    recognition.onresult = async (event) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-            }
+    rec.onresult = async (e) => {
+        let finalStr = '';
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+            if (e.results[i].isFinal) finalStr += e.results[i][0].transcript;
         }
-
-        if (finalTranscript.trim() && State.callActive) {
-            State.callTranscript = `Bạn: "${finalTranscript.trim()}"`;
-            renderVoiceCallView();
-
+        if (finalStr.trim() && State.callActive) {
+            State.callTranscript = `Anh: "${finalStr.trim()}"`;
+            renderCallView();
             try {
                 const res = await api('/api/voice/process-turn', {
                     method: 'POST',
-                    body: {
-                        lover_id: State.lover.id,
-                        transcript: finalTranscript.trim()
-                    }
+                    body: { lover_id: State.lover.id, transcript: finalStr.trim() }
                 });
-
                 if (res.reply) {
                     State.callTranscript = `${State.lover.name}: "${res.reply}"`;
-                    renderVoiceCallView();
+                    renderCallView();
                     speakText(res.reply);
                 }
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (err) {}
         }
     };
-
-    recognition.onerror = (e) => {
-        console.warn('Recognition error:', e.error);
-    };
-
-    State.speechRecognition = recognition;
+    State.speechRecognition = rec;
 }
 
 function startVoiceCall() {
     if (!State.lover) return;
     State.callActive = true;
     State.callDuration = 0;
-    State.callTranscript = State.callMode === 'video' ? 'Đang kết nối cuộc gọi video yêu thương... 📹' : 'Đang kết nối cuộc gọi thoại... 📞';
+    State.callTranscript = 'Đang kết nối cuộc gọi thoại hai chiều... 📞';
     playTone(600, 'sine', 0.2);
 
     if (State.speechRecognition) {
@@ -503,25 +359,16 @@ function startVoiceCall() {
         } catch (e) {}
     }
 
-    if (State.callMode === 'video') {
-        startCameraPreview();
-    }
-
     State.callTimerInterval = setInterval(() => {
         State.callDuration++;
-        renderVoiceCallTimer();
+        renderCallTimer();
     }, 1000);
 
-    renderVoiceCallView();
-    // Greeting on call
+    renderCallView();
     setTimeout(() => {
-        const p_ai = State.lover.pronouns_ai || 'em';
-        const p_user = State.lover.pronouns_user || 'anh';
-        const greeting = State.callMode === 'video'
-            ? `Alo, ${p_ai} thấy ${p_user} rồi nè! Hôm nay ${p_user} nhìn đáng yêu quá à! 💕`
-            : `Alo, ${p_ai} nghe đây nè ${p_user} yêu! Thèm nghe giọng ${p_user} quá đi mất!`;
+        const greeting = `Dạ alo, em nghe đây nè anh yêu! Thèm nghe giọng anh quá đi mất, anh có nhớ em không nè? ❤️`;
         State.callTranscript = `${State.lover.name}: "${greeting}"`;
-        renderVoiceCallView();
+        renderCallView();
         speakText(greeting);
     }, 800);
 }
@@ -531,79 +378,38 @@ function endVoiceCall() {
     State.callActive = false;
     clearInterval(State.callTimerInterval);
     if (State.speechRecognition) {
-        try {
-            State.speechRecognition.stop();
-            State.isListening = false;
-        } catch (e) {}
+        try { State.speechRecognition.stop(); } catch (e) {}
     }
-    stopCameraPreview();
     window.speechSynthesis?.cancel();
 
-    // Log call
     api('/api/voice/end', {
         method: 'POST',
-        body: {
-            lover_id: State.lover.id,
-            duration_seconds: State.callDuration,
-            summary: `Cuộc gọi ${State.callMode === 'video' ? 'video' : 'thoại'} ${formatDuration(State.callDuration)}`
-        }
+        body: { lover_id: State.lover.id, duration_seconds: State.callDuration }
     }).catch(console.error);
 
     showToast(`Cuộc gọi đã kết thúc (${formatDuration(State.callDuration)})`, 'info');
-    renderVoiceCallView();
+    renderCallView();
 }
 
-function setCallMode(mode) {
-    State.callMode = mode;
-    renderVoiceCallView();
-    if (State.callActive) {
-        if (mode === 'video') {
-            startCameraPreview();
-        } else {
-            stopCameraPreview();
-        }
-    }
+function formatDuration(sec) {
+    const m = Math.floor(sec / 60).toString().padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
 }
 
-async function startCameraPreview() {
-    try {
-        if (!navigator.mediaDevices?.getUserMedia) return;
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        State.localStream = stream;
-        State.cameraActive = true;
-        setTimeout(() => {
-            const videoEl = document.getElementById('user-pip-video');
-            if (videoEl) {
-                videoEl.srcObject = stream;
-            }
-        }, 150);
-    } catch (e) {
-        console.warn('Camera access error:', e);
-        showToast('Không thể mở camera (cuộc gọi vẫn kết nối bình thường)', 'info');
-    }
+function renderCallTimer() {
+    const el = document.getElementById('voice-timer');
+    if (el && State.callActive) el.innerText = formatDuration(State.callDuration);
 }
 
-function stopCameraPreview() {
-    if (State.localStream) {
-        State.localStream.getTracks().forEach(t => t.stop());
-        State.localStream = null;
-        State.cameraActive = false;
+function toggleMuteMicrophone() {
+    State.isMuted = !State.isMuted;
+    if (State.speechRecognition) {
+        if (State.isMuted) State.speechRecognition.stop();
+        else { try { State.speechRecognition.start(); } catch (e) {} }
     }
-}
-
-function setVideoFilter(filterName) {
-    State.videoFilter = filterName;
-    const aiVideo = document.getElementById('ai-video-frame');
-    if (!aiVideo) return;
-    if (filterName === 'romantic') {
-        aiVideo.style.filter = 'sepia(0.2) hue-rotate(310deg) saturate(1.3) contrast(1.05)';
-    } else if (filterName === 'soft') {
-        aiVideo.style.filter = 'contrast(1.05) saturate(1.2) brightness(1.08)';
-    } else if (filterName === 'cyber') {
-        aiVideo.style.filter = 'hue-rotate(250deg) contrast(1.2) saturate(1.4)';
-    } else {
-        aiVideo.style.filter = 'none';
-    }
+    showToast(State.isMuted ? 'Đã tắt Micro' : 'Đã bật Micro', 'info');
+    renderCallView();
 }
 
 function spawnFloatingHearts(e) {
@@ -620,67 +426,15 @@ function spawnFloatingHearts(e) {
     }
 }
 
-function formatDuration(sec) {
-    const m = Math.floor(sec / 60).toString().padStart(2, '0');
-    const s = (sec % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-}
-
-// Memories & Diary loaders
-async function loadMemories() {
-    if (!State.lover) return;
-    try {
-        const data = await api(`/api/memories?lover_id=${State.lover.id}`);
-        State.memories = data.memories || [];
-        renderMemoriesView();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function loadDiaries() {
-    if (!State.lover) return;
-    try {
-        const data = await api(`/api/diary?lover_id=${State.lover.id}`);
-        State.diaries = data.diaries || [];
-        renderDiaryView();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function loadPhotos() {
-    if (!State.lover) return;
-    try {
-        const data = await api(`/api/album?lover_id=${State.lover.id}`);
-        State.photos = data.photos || [];
-        renderDiaryView();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function loadAdminStats() {
-    try {
-        const statsData = await api('/api/admin/stats');
-        const settingsData = await api('/api/admin/settings');
-        State.adminStats = statsData;
-        State.adminSettings = settingsData.settings || {};
-        renderAdminView();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-// Periodic polling for real-time sync with background scheduler or Messenger
-function setupPeriodicPoller() {
+// Real-time polling
+function setupPeriodicSync() {
     setInterval(async () => {
-        if (State.token && State.activeTab === 'chat' && !State.searchQuery) {
+        if (State.token && State.activeTab === 'messages' && !State.searchQuery) {
             try {
-                const data = await api(`/api/chat/messages?lover_id=${State.lover?.id}&limit=20`);
+                const data = await api(`/api/chat/messages?sender=${State.messageFilter}&limit=20`);
                 if (data.messages && data.messages.length > State.messages.length) {
                     State.messages = data.messages;
-                    renderChatMessages();
+                    renderMessagesStream();
                     scrollChatToBottom();
                     playNotificationSound();
                 }
@@ -690,14 +444,13 @@ function setupPeriodicPoller() {
 }
 
 // ----------------------------------------------------
-// UI RENDERING ENGINE
+// UI RENDERING - 5 DASHBOARD PAGES
 // ----------------------------------------------------
 
 function renderApp() {
     const appEl = document.getElementById('app');
     if (!appEl) return;
 
-    // If not authenticated, render Login/Register
     if (!State.token || State.activeTab === 'auth') {
         appEl.innerHTML = renderAuthScreen();
         return;
@@ -705,7 +458,7 @@ function renderApp() {
 
     appEl.innerHTML = `
         <div class="flex h-screen w-screen overflow-hidden">
-            <!-- Sidebar Navigation (Desktop) -->
+            <!-- Sidebar Navigation -->
             <aside class="hidden md:flex flex-col w-64 lg:w-72 glass-panel m-3 mr-0 p-4 rounded-3xl border border-white/40 dark:border-white/10 z-20">
                 ${renderSidebarHeader()}
                 <div class="flex-1 space-y-1.5 overflow-y-auto mt-4 pr-1">
@@ -716,11 +469,11 @@ function renderApp() {
 
             <!-- Main Content Area -->
             <main class="flex-1 flex flex-col h-full overflow-hidden p-2 md:p-3 relative">
-                ${renderMainHeader()}
+                ${renderTopBar()}
                 <div class="flex-1 overflow-hidden relative mt-2 rounded-3xl">
                     ${renderActiveTabContent()}
                 </div>
-                <!-- Bottom Navigation (Mobile) -->
+                <!-- Mobile Navigation Bar -->
                 <div class="md:hidden flex justify-around items-center glass-panel p-2 mt-2 rounded-2xl border border-white/40 dark:border-white/10 z-30">
                     ${renderMobileNavButtons()}
                 </div>
@@ -729,9 +482,8 @@ function renderApp() {
         <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2"></div>
     `;
 
-    // Post-render attachments
-    if (State.activeTab === 'chat') {
-        renderChatMessages();
+    if (State.activeTab === 'messages') {
+        renderMessagesStream();
         scrollChatToBottom();
     }
 }
@@ -742,15 +494,15 @@ function renderSidebarHeader() {
         <div class="flex items-center gap-3 p-2 border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
             <div class="relative">
                 <img src="${l ? l.avatar_url : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'}"
-                     class="w-12 h-12 rounded-full object-cover shadow-md avatar-glow" alt="Lover Avatar" />
+                     class="w-12 h-12 rounded-full object-cover shadow-md avatar-glow" />
                 <span class="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-gray-900 rounded-full animate-pulse"></span>
             </div>
             <div class="flex-1 min-w-0">
                 <h3 class="font-bold text-base truncate flex items-center gap-1.5">
-                    <span>${l ? l.name : 'Người yêu AI'}</span>
-                    <span class="text-xs px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950 text-pink-600 dark:text-pink-300 font-semibold">AI</span>
+                    <span>${l ? l.name : 'Ngọc Mai'}</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950 text-pink-600 font-bold uppercase">AI</span>
                 </h3>
-                <p class="text-xs text-muted truncate">${l ? l.style : 'Đang trực tuyến...'}</p>
+                <p class="text-xs text-muted truncate">${l ? l.style : 'Cô người yêu ảo lý tưởng'}</p>
             </div>
         </div>
     `;
@@ -758,17 +510,17 @@ function renderSidebarHeader() {
 
 function renderNavButtons() {
     const navs = [
-        { id: 'chat', label: 'Phòng trò chuyện', icon: '💬', badge: '' },
-        { id: 'call', label: 'Gọi thoại với AI', icon: '📞', badge: 'Hot' },
-        { id: 'diary', label: 'Nhật ký tình yêu', icon: '📖', badge: '' },
-        { id: 'memories', label: 'Ký ức & Cảm xúc', icon: '🧠', badge: 'Smart' },
+        { id: 'home', label: 'Trang chủ', icon: '🏠', badge: '' },
+        { id: 'messages', label: 'Quản lý tin nhắn', icon: '💬', badge: State.humanTakeoverMode ? 'Người thật' : 'AI' },
+        { id: 'schedule', label: 'Lịch trình tự động', icon: '⏰', badge: 'Auto' },
+        { id: 'personality', label: 'Cài đặt tính cách', icon: '✨', badge: '' },
+        { id: 'calls', label: 'Cuộc gọi thoại', icon: '📞', badge: 'Realtime' },
         { id: 'messenger', label: 'Kết nối Messenger', icon: '⚡', badge: 'Meta' },
-        { id: 'create-lover', label: 'Tùy biến người yêu', icon: '✨', badge: '' },
-        { id: 'settings', label: 'Trung tâm cài đặt', icon: '⚙️', badge: '' }
+        { id: 'logs', label: 'Nhật ký hoạt động', icon: '📋', badge: '' }
     ];
 
     if (State.user && State.user.role === 'admin') {
-        navs.push({ id: 'admin', label: 'Quản trị Admin', icon: '🛡️', badge: 'Admin' });
+        navs.push({ id: 'admin', label: 'Cấu hình Admin & AI', icon: '🛡️', badge: 'Admin' });
     }
 
     return navs.map(n => `
@@ -782,7 +534,7 @@ function renderNavButtons() {
                 <span class="text-lg">${n.icon}</span>
                 <span>${n.label}</span>
             </div>
-            ${n.badge ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-white/30 text-white font-bold uppercase tracking-wider">${n.badge}</span>` : ''}
+            ${n.badge ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-white/30 text-white font-bold tracking-wider">${n.badge}</span>` : ''}
         </button>
     `).join('');
 }
@@ -791,12 +543,12 @@ function renderSidebarFooter() {
     return `
         <div class="pt-4 border-t border-pink-200/50 dark:border-pink-900/40 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <button onclick="toggleTheme()" class="p-2.5 rounded-xl glass-pill hover:scale-105 transition" title="Đổi chế độ Sáng/Tối">
+                <button onclick="toggleTheme()" class="p-2.5 rounded-xl glass-pill hover:scale-105 transition" title="Đổi màu Giao diện">
                     ${State.theme === 'dark' ? '☀️' : '🌙'}
                 </button>
                 <div class="text-xs">
-                    <p class="font-bold truncate max-w-[100px]">${State.user ? State.user.display_name : 'User'}</p>
-                    <p class="text-[10px] text-muted">${State.user?.email || ''}</p>
+                    <p class="font-bold truncate max-w-[100px]">${State.user ? State.user.display_name : 'Anh yêu'}</p>
+                    <p class="text-[10px] text-muted">Người yêu của Mai ❤️</p>
                 </div>
             </div>
             <button onclick="logout()" class="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition" title="Đăng xuất">
@@ -806,80 +558,25 @@ function renderSidebarFooter() {
     `;
 }
 
-function getRelationshipStats() {
-    const l = State.lover;
-    const days = l?.first_met_date ? calculateDaysTogether(l.first_met_date) : 1;
-    const msgCount = State.messages.length;
-    const score = Math.min(1000, days * 15 + msgCount * 12 + (State.memories.length * 35));
-    let level = 1;
-    let title = "Mới quen";
-    let progress = Math.min(100, Math.floor((score / 200) * 100));
-
-    if (score >= 800) {
-        level = 5;
-        title = "Tri kỷ vĩnh cửu";
-        progress = 100;
-    } else if (score >= 600) {
-        level = 4;
-        title = "Hẹn hò say đắm";
-        progress = Math.min(100, Math.floor(((score - 600) / 200) * 100));
-    } else if (score >= 350) {
-        level = 3;
-        title = "Đang tìm hiểu";
-        progress = Math.min(100, Math.floor(((score - 350) / 250) * 100));
-    } else if (score >= 150) {
-        level = 2;
-        title = "Thân thiết ngọt ngào";
-        progress = Math.min(100, Math.floor(((score - 150) / 200) * 100));
-    }
-    return { level, title, score, progress, days };
-}
-
-function renderMainHeader() {
-    const l = State.lover;
-    const rel = getRelationshipStats();
-
+function renderTopBar() {
     return `
         <header class="glass-panel px-4 py-2.5 rounded-2xl flex items-center justify-between border border-white/40 dark:border-white/10 shadow-sm">
             <div class="flex items-center gap-3">
-                <div class="md:hidden flex items-center gap-2">
-                    <img src="${l?.avatar_url || ''}" class="w-9 h-9 rounded-full object-cover avatar-glow" />
-                </div>
-                <div>
-                    <h2 class="font-bold text-sm md:text-base flex items-center gap-2">
-                        <span>Virtual AI Lover</span>
-                        <span class="text-pink-500 text-xs md:text-sm">❤️</span>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-900/60 text-pink-600 dark:text-pink-300 font-semibold">
-                            ${rel.days} ngày bên nhau
-                        </span>
-                    </h2>
-                </div>
+                <h2 class="font-bold text-sm md:text-base flex items-center gap-2">
+                    <span>AI Girlfriend – My Virtual Love</span>
+                    <span class="text-pink-500">❤️</span>
+                </h2>
+                <span class="hidden sm:inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Đang hoạt động</span>
+                </span>
             </div>
-
-            <!-- Love Level Milestone Bar -->
-            <div class="hidden sm:flex flex-col items-start gap-1 px-3 py-1 rounded-xl bg-pink-50/60 dark:bg-pink-950/20 border border-pink-200/40">
-                <div class="flex items-center gap-2 text-[11px] font-bold text-pink-600 dark:text-pink-300">
-                    <span>💖 Cấp ${rel.level}: ${rel.title}</span>
-                    <span class="text-[10px] text-muted">(${rel.progress}%)</span>
-                </div>
-                <div class="w-32 h-1.5 bg-pink-200/50 dark:bg-white/10 rounded-full overflow-hidden">
-                    <div class="h-full exp-bar-glow rounded-full" style="width: ${rel.progress}%"></div>
-                </div>
-            </div>
-
-            <!-- Header Quick Actions -->
             <div class="flex items-center gap-2">
-                <button onclick="switchTab('call')" class="px-3 py-1.5 rounded-xl bg-pink-500/10 hover:bg-pink-500/20 text-pink-600 dark:text-pink-300 text-xs font-semibold flex items-center gap-1.5 transition">
+                <button onclick="switchTab('calls')" class="px-3 py-1.5 rounded-xl bg-pink-500/10 hover:bg-pink-500/20 text-pink-600 dark:text-pink-300 text-xs font-semibold flex items-center gap-1.5 transition">
                     <span>📞</span> <span class="hidden sm:inline">Gọi điện</span>
                 </button>
-                <button onclick="triggerNudge('random_care')" class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition" title="Bảo AI nhắn tin hỏi thăm ngay">
-                    <span>💌</span> <span class="hidden sm:inline">Hỏi thăm</span>
-                </button>
-                <button onclick="spawnFloatingHearts(event)" class="p-2 rounded-xl glass-pill hover:scale-110 transition text-pink-500" title="Thả tim yêu thương">
+                <button onclick="spawnFloatingHearts(event)" class="p-2 rounded-xl glass-pill hover:scale-110 text-pink-500 transition" title="Thả tim yêu thương">
                     💖
-                </button>
-                <button onclick="toggleTheme()" class="md:hidden p-2 rounded-xl glass-pill">
-                    ${State.theme === 'dark' ? '☀️' : '🌙'}
                 </button>
             </div>
         </header>
@@ -888,132 +585,194 @@ function renderMainHeader() {
 
 function renderMobileNavButtons() {
     const items = [
-        { id: 'chat', label: 'Chat', icon: '💬' },
-        { id: 'call', label: 'Gọi', icon: '📞' },
-        { id: 'diary', label: 'Kỷ niệm', icon: '📖' },
-        { id: 'memories', label: 'Ký ức', icon: '🧠' },
-        { id: 'settings', label: 'Cài đặt', icon: '⚙️' }
+        { id: 'home', label: 'Trang chủ', icon: '🏠' },
+        { id: 'messages', label: 'Tin nhắn', icon: '💬' },
+        { id: 'schedule', label: 'Lịch trình', icon: '⏰' },
+        { id: 'personality', label: 'Tính cách', icon: '✨' },
+        { id: 'calls', label: 'Gọi điện', icon: '📞' }
     ];
-    return items.map(item => `
-        <button onclick="switchTab('${item.id}')" class="flex flex-col items-center gap-0.5 text-xs py-1 px-2.5 rounded-xl ${State.activeTab === item.id ? 'text-pink-500 font-bold' : 'text-gray-500'}">
-            <span class="text-lg">${item.icon}</span>
-            <span>${item.label}</span>
+    return items.map(i => `
+        <button onclick="switchTab('${i.id}')" class="flex flex-col items-center gap-0.5 text-xs py-1 px-2.5 rounded-xl ${State.activeTab === i.id ? 'text-pink-500 font-bold' : 'text-gray-500'}">
+            <span class="text-lg">${i.icon}</span>
+            <span>${i.label}</span>
         </button>
     `).join('');
 }
 
-function calculateDaysTogether(firstMetDateStr) {
-    try {
-        const start = new Date(firstMetDateStr);
-        const now = new Date();
-        const diff = Math.max(1, Math.floor((now - start) / (1000 * 60 * 60 * 24)));
-        return diff;
-    } catch (e) {
-        return 1;
-    }
-}
-
-// ----------------------------------------------------
-// TAB CONTENTS
-// ----------------------------------------------------
-
 function renderActiveTabContent() {
     switch (State.activeTab) {
-        case 'chat': return renderChatView();
-        case 'call': return renderVoiceCallView();
-        case 'create-lover': return renderCreateLoverView();
-        case 'diary': return renderDiaryView();
-        case 'memories': return renderMemoriesView();
-        case 'messenger': return renderMessengerView();
-        case 'settings': return renderSettingsView();
+        case 'home': return renderHomeView();
+        case 'messages': return renderMessagesView();
+        case 'schedule': return renderScheduleView();
+        case 'personality': return renderPersonalityView();
+        case 'calls': return renderCallView();
+        case 'messenger': return renderMessengerConnectView();
+        case 'logs': return renderLogsView();
         case 'admin': return renderAdminView();
-        default: return renderChatView();
+        default: return renderHomeView();
     }
 }
 
 // ----------------------------------------------------
-// 1. CHAT ROOM VIEW
+// 1. TRANG CHỦ (OVERVIEW DASHBOARD)
 // ----------------------------------------------------
-function renderChatView() {
+function renderHomeView() {
+    const l = State.lover || {};
+    const s = State.overviewStats || { total_messages: 12, auto_messages: 4, total_calls: 3, messenger_connected: false, next_scheduled_label: 'Tối', next_scheduled_time: '22:30' };
+
+    return `
+        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
+            <!-- Hero Girlfriend Card -->
+            <div class="p-6 rounded-3xl btn-romantic text-white shadow-xl flex flex-col md:flex-row items-center gap-6 relative overflow-hidden">
+                <img src="${l.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'}"
+                     class="w-28 h-28 rounded-full object-cover shadow-2xl border-4 border-white/50 avatar-glow" />
+                <div class="flex-1 text-center md:text-left space-y-1.5">
+                    <span class="text-xs bg-white/20 px-3 py-1 rounded-full uppercase tracking-wider font-semibold">Cô người yêu AI của bạn</span>
+                    <h2 class="serif-font text-3xl font-bold mt-1">${l.name || 'Ngọc Mai'} 💕</h2>
+                    <p class="text-sm text-white/90 leading-relaxed">${l.personality_summary || 'Dịu dàng, ngọt ngào, tinh nghịch và luôn dành trọn tình cảm cho anh'}</p>
+                    <div class="pt-2 flex flex-wrap gap-2 justify-center md:justify-start">
+                        <span class="text-xs px-3 py-1 rounded-full bg-white/20 backdrop-blur-md">🌸 Dịu dàng: ${l.trait_gentleness || 95}%</span>
+                        <span class="text-xs px-3 py-1 rounded-full bg-white/20 backdrop-blur-md">💖 Lãng mạn: ${l.trait_romance || 90}%</span>
+                        <span class="text-xs px-3 py-1 rounded-full bg-white/20 backdrop-blur-md">🥰 Tinh nghịch: ${l.trait_humor || 75}%</span>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <button onclick="switchTab('messages')" class="px-5 py-2.5 rounded-2xl bg-white text-pink-600 font-bold text-xs shadow-lg hover:scale-105 transition">
+                        💬 Nhắn tin ngay
+                    </button>
+                    <button onclick="switchTab('calls')" class="px-5 py-2.5 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs backdrop-blur-md transition">
+                        📞 Gọi điện thoại
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Overview Cards -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 text-center">
+                    <span class="text-xs text-muted">Trạng thái Messenger</span>
+                    <h4 class="font-bold text-sm mt-1 flex items-center justify-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-full ${s.messenger_connected ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
+                        <span class="${s.messenger_connected ? 'text-emerald-600' : 'text-amber-600'}">
+                            ${s.messenger_connected ? 'Đã kết nối Fanpage' : 'Chưa kết nối'}
+                        </span>
+                    </h4>
+                    <button onclick="switchTab('messenger')" class="text-[11px] text-pink-500 hover:underline mt-1">Cấu hình ngay</button>
+                </div>
+
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 text-center">
+                    <span class="text-xs text-muted">Tổng số tin nhắn</span>
+                    <h3 class="font-black text-2xl text-pink-600 mt-0.5">${s.total_messages}</h3>
+                    <p class="text-[10px] text-muted">Đồng bộ hai chiều</p>
+                </div>
+
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 text-center">
+                    <span class="text-xs text-muted">Tin nhắn chủ động</span>
+                    <h3 class="font-black text-2xl text-purple-600 mt-0.5">${s.auto_messages}</h3>
+                    <p class="text-[10px] text-muted">Đã gửi tự động</p>
+                </div>
+
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 text-center">
+                    <span class="text-xs text-muted">Lịch trình nhắn tiếp theo</span>
+                    <h4 class="font-bold text-sm text-pink-600 mt-1">${s.next_scheduled_label}</h4>
+                    <p class="text-xs font-mono font-bold text-gray-700 dark:text-gray-300 mt-0.5">Lúc ${s.next_scheduled_time}</p>
+                </div>
+            </div>
+
+            <!-- Quick Proactive Message Test -->
+            <div class="p-5 rounded-3xl glass-panel border border-pink-200/50 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-base flex items-center gap-2">
+                            <span>💌</span> <span>Thử nghiệm AI chủ động nhắn tin hỏi han</span>
+                        </h3>
+                        <p class="text-xs text-muted">Bấm nút để mô phỏng tin nhắn AI chủ động hỏi thăm theo từng khung giờ trong ngày.</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 pt-1">
+                    <button onclick="testProactive('morning')" class="px-3.5 py-2 rounded-xl glass-pill hover:bg-pink-100 text-xs font-semibold text-pink-600 transition">
+                        🌅 Chào buổi sáng
+                    </button>
+                    <button onclick="testProactive('lunch')" class="px-3.5 py-2 rounded-xl glass-pill hover:bg-pink-100 text-xs font-semibold text-purple-600 transition">
+                        🍱 Hỏi thăm ăn trưa
+                    </button>
+                    <button onclick="testProactive('afternoon')" class="px-3.5 py-2 rounded-xl glass-pill hover:bg-pink-100 text-xs font-semibold text-pink-600 transition">
+                        🌇 Tan làm buổi chiều
+                    </button>
+                    <button onclick="testProactive('night')" class="px-3.5 py-2 rounded-xl glass-pill hover:bg-pink-100 text-xs font-semibold text-purple-600 transition">
+                        🌙 Chúc ngủ ngon
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function testProactive(milestone) {
+    try {
+        const res = await api('/api/schedule/test', { method: 'POST', body: { milestone } });
+        showToast(`Ngọc Mai đã nhắn: "${res.message}"`, 'success');
+        await loadOverviewData();
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ----------------------------------------------------
+// 2. TRANG QUẢN LÝ TIN NHẮN (MESSAGES HUB)
+// ----------------------------------------------------
+function renderMessagesView() {
     const l = State.lover;
     return `
-        <div class="h-full flex flex-col glass-panel rounded-3xl border border-white/40 dark:border-white/10 overflow-hidden relative shadow-lg">
-            <!-- Chat Header Bar -->
-            <div class="px-4 py-3 border-b border-pink-100 dark:border-white/5 flex items-center justify-between bg-white/40 dark:bg-white/5 backdrop-blur-md">
+        <div class="h-full flex flex-col glass-panel rounded-3xl border border-white/40 dark:border-white/10 overflow-hidden shadow-lg">
+            <!-- Header Bar with Filters and Switches -->
+            <div class="p-3 border-b border-pink-100 dark:border-white/5 flex flex-wrap items-center justify-between gap-3 bg-white/40 dark:bg-white/5 backdrop-blur-md">
                 <div class="flex items-center gap-3">
                     <img src="${l?.avatar_url || ''}" class="w-10 h-10 rounded-full object-cover avatar-glow" />
                     <div>
                         <div class="flex items-center gap-2">
-                            <span class="font-bold text-sm">${l?.name || 'Người yêu AI'}</span>
-                            <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" title="Đang hoạt động"></span>
+                            <span class="font-bold text-sm">${l?.name || 'Ngọc Mai'}</span>
+                            <span class="w-2.5 h-2.5 rounded-full ${State.humanTakeoverMode ? 'bg-blue-500' : 'bg-emerald-500'} animate-pulse"></span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full ${State.humanTakeoverMode ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'} font-bold">
+                                ${State.humanTakeoverMode ? 'Người thật can thiệp' : 'AI Trả lời tự động'}
+                            </span>
                         </div>
-                        <p class="text-[11px] text-muted">
-                            ${l?.personality || 'Dịu dàng, chu đáo'} • Đang lắng nghe bạn
-                        </p>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2">
-                    <!-- Search input -->
-                    <div class="relative hidden sm:block">
-                        <input type="text" placeholder="Tìm tin nhắn..." value="${State.searchQuery}"
-                               oninput="onSearchChat(this.value)"
-                               class="text-xs px-3 py-1.5 pl-8 rounded-full bg-white/60 dark:bg-black/30 border border-white/40 dark:border-white/10 focus:outline-none focus:ring-1 focus:ring-pink-400 w-36 lg:w-48" />
-                        <span class="absolute left-2.5 top-1.5 text-xs text-muted">🔍</span>
-                    </div>
-                    <button onclick="clearChatHistory()" class="p-2 rounded-full hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500 transition" title="Xóa lịch sử trò chuyện">
-                        🗑️
-                    </button>
+                <!-- Switches: Auto-Reply & Human Takeover -->
+                <div class="flex items-center gap-3">
+                    <label class="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
+                        <input type="checkbox" onchange="toggleAutoReply()" ${State.autoReplyEnabled ? 'checked' : ''} class="accent-pink-500 rounded" />
+                        <span>Tự động trả lời</span>
+                    </label>
+
+                    <label class="flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-blue-600 dark:text-blue-400">
+                        <input type="checkbox" onchange="toggleHumanTakeover()" ${State.humanTakeoverMode ? 'checked' : ''} class="accent-blue-500 rounded" />
+                        <span>Người thật can thiệp</span>
+                    </label>
+
+                    <!-- Filter pills -->
+                    <select onchange="onFilterChange(this.value)" class="text-xs px-2.5 py-1.5 rounded-xl bg-white/60 dark:bg-black/30 border border-pink-200/50">
+                        <option value="all" ${State.messageFilter === 'all' ? 'selected' : ''}>Tất cả tin nhắn</option>
+                        <option value="ai" ${State.messageFilter === 'ai' ? 'selected' : ''}>Chỉ tin AI gửi</option>
+                        <option value="user" ${State.messageFilter === 'user' ? 'selected' : ''}>Chỉ tin Anh gửi</option>
+                        <option value="human_admin" ${State.messageFilter === 'human_admin' ? 'selected' : ''}>Tin Người thật gửi</option>
+                    </select>
                 </div>
             </div>
 
-            <!-- Messages Scroll Area -->
-            <div id="chat-scroll-area" ondblclick="spawnFloatingHearts(event)" class="flex-1 overflow-y-auto p-4 space-y-3.5" title="Nhấp đúp chuột để thả tim yêu thương">
+            <!-- Messages Stream Area -->
+            <div id="chat-scroll-area" class="flex-1 overflow-y-auto p-4 space-y-3.5">
                 <!-- Dynamically loaded messages -->
             </div>
 
-            <!-- Typing indicator -->
             <div id="chat-typing-container" class="px-4 py-1"></div>
 
-            <!-- Chat Input Box -->
+            <!-- Message Input Form -->
             <div class="p-3 bg-white/50 dark:bg-white/5 border-t border-pink-100 dark:border-white/5 backdrop-blur-md">
-                <!-- Quick Icebreaker Conversation Starters -->
-                <div class="flex items-center gap-1.5 mb-2 overflow-x-auto pb-1 text-xs no-scrollbar">
-                    <button onclick="sendMessage('Em đang làm gì đấy? Nhớ em quá 💕')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-pink-600 dark:text-pink-300 whitespace-nowrap transition">
-                        💬 Em đang làm gì đấy?
-                    </button>
-                    <button onclick="sendMessage('Hôm nay anh đi làm hơi mệt... 🥺')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-purple-600 dark:text-purple-300 whitespace-nowrap transition">
-                        🥺 Hôm nay anh hơi mệt
-                    </button>
-                    <button onclick="sendMessage('Em ơi gửi cho anh xem một tấm ảnh selfie của em đi nào 💕')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-pink-600 dark:text-pink-300 whitespace-nowrap transition">
-                        📸 Gửi ảnh selfie của em
-                    </button>
-                    <button onclick="sendMessage('Em có giận dỗi hay ghen gì anh không đấy? 😤')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-purple-600 dark:text-purple-300 whitespace-nowrap transition">
-                        😤 Em có ghen không?
-                    </button>
-                    <button onclick="sendMessage('Em ơi nhắc lại kỷ niệm đáng nhớ của hai đứa mình đi ✨')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-pink-600 dark:text-pink-300 whitespace-nowrap transition">
-                        ✨ Kỷ niệm đáng nhớ
-                    </button>
-                </div>
-
-                <!-- Quick Sticker Tray -->
-                <div class="flex items-center gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
-                    ${ROMANTIC_STICKERS.map(s => `
-                        <button onclick="sendMessage('${s}', 'sticker')" class="text-lg hover:scale-125 transition p-1 rounded-lg hover:bg-white/40 dark:hover:bg-white/10">
-                            ${s}
-                        </button>
-                    `).join('')}
-                </div>
-
-                <form onsubmit="handleChatSubmit(event)" class="flex items-center gap-2">
-                    <button type="button" onclick="promptSendPhoto()" class="p-2.5 rounded-2xl glass-pill hover:scale-105 transition text-pink-500" title="Gửi ảnh">
-                        📷
-                    </button>
-                    <input id="chat-input" type="text" placeholder="Nhắn tin với ${l ? l.name : 'người yêu'}... (Em nhớ anh 💕)"
-                           class="flex-1 px-4 py-2.5 rounded-2xl bg-white/80 dark:bg-black/40 border border-pink-200/60 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 dark:focus:ring-pink-500" />
-                    <button type="submit" class="btn-romantic p-2.5 px-4 rounded-2xl text-sm font-bold flex items-center gap-1.5 shadow-md">
-                        <span>Gửi</span>
-                        <span>🚀</span>
+                <form onsubmit="handleSendSubmit(event)" class="flex items-center gap-2">
+                    <input id="chat-input" type="text" placeholder="${State.humanTakeoverMode ? 'Nhắn tin với tư cách Người thật (AI không tự trả lời)...' : 'Nhắn tin với Ngọc Mai (Em nhớ anh ❤️)...'}"
+                           class="flex-1 px-4 py-2.5 rounded-2xl bg-white/80 dark:bg-black/40 border border-pink-200/60 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" />
+                    <button type="submit" class="btn-romantic p-2.5 px-5 rounded-2xl text-sm font-bold shadow-md">
+                        <span>Gửi</span> 🚀
                     </button>
                 </form>
             </div>
@@ -1021,39 +780,29 @@ function renderChatView() {
     `;
 }
 
-function renderChatMessages() {
+function renderMessagesStream() {
     const container = document.getElementById('chat-scroll-area');
     if (!container) return;
 
     if (State.messages.length === 0) {
-        container.innerHTML = `
-            <div class="h-full flex flex-col items-center justify-center text-center p-6 text-muted space-y-3">
-                <span class="text-5xl animate-bounce">💌</span>
-                <h4 class="font-bold text-base text-gray-700 dark:text-gray-300">Bắt đầu câu chuyện tình yêu</h4>
-                <p class="text-xs max-w-sm">Hãy gửi lời chào đầu tiên hoặc hỏi thăm người yêu nhé. Người yêu ảo luôn sẵn sàng sẻ chia cùng bạn!</p>
-            </div>
-        `;
+        container.innerHTML = `<div class="h-full flex items-center justify-center text-center text-muted text-xs">Chưa có tin nhắn nào. Hãy gửi lời chào đầu tiên nhé! 💕</div>`;
         return;
     }
 
     const l = State.lover;
     container.innerHTML = State.messages.map(m => {
         const isUser = m.sender === 'user';
+        const isHuman = m.sender === 'human_admin';
         const timeStr = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-        
-        let mediaHtml = '';
-        if (m.media_url) {
-            mediaHtml = `<img src="${m.media_url}" class="rounded-xl max-w-xs max-h-60 object-cover mb-1.5 shadow" alt="attachment" />`;
-        }
 
         return `
             <div class="flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start'} group">
                 ${!isUser ? `
                     <img src="${l?.avatar_url || ''}" class="w-8 h-8 rounded-full object-cover self-end mb-1 avatar-glow flex-shrink-0" />
                 ` : ''}
-                <div class="max-w-[78%] md:max-w-[65%] flex flex-col ${isUser ? 'items-end' : 'items-start'}">
-                    <div class="px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${isUser ? 'bubble-user' : 'bubble-ai'}">
-                        ${mediaHtml}
+                <div class="max-w-[75%] md:max-w-[65%] flex flex-col ${isUser ? 'items-end' : 'items-start'}">
+                    <div class="px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${isUser ? 'bubble-user' : (isHuman ? 'bg-blue-600 text-white rounded-bl-sm shadow' : 'bubble-ai')}">
+                        ${isHuman ? `<span class="text-[9px] uppercase font-bold tracking-wider opacity-80 block mb-0.5">👤 Người thật trả lời</span>` : ''}
                         <div class="whitespace-pre-wrap select-text">${escapeHtml(m.content)}</div>
                     </div>
                     <div class="flex items-center gap-2 mt-1 px-1 text-[10px] text-muted">
@@ -1070,1131 +819,531 @@ function renderChatMessages() {
     }).join('');
 }
 
-function renderTypingIndicator() {
+function renderTyping() {
     const el = document.getElementById('chat-typing-container');
     if (!el) return;
-    if (State.isTyping) {
-        el.innerHTML = `
-            <div class="flex items-center gap-2 text-xs text-pink-500 font-medium animate-pulse">
-                <span>💕</span>
-                <span>${State.lover?.name || 'Người yêu'} đang soạn tin nhắn...</span>
-            </div>
-        `;
-    } else {
-        el.innerHTML = '';
-    }
+    el.innerHTML = State.isTyping ? `
+        <div class="flex items-center gap-2 text-xs text-pink-500 font-medium animate-pulse">
+            <span>💕</span> <span>${State.lover?.name || 'Ngọc Mai'} đang soạn tin nhắn...</span>
+        </div>
+    ` : '';
 }
 
-function handleChatSubmit(e) {
+function handleSendSubmit(e) {
     e.preventDefault();
     const input = document.getElementById('chat-input');
     if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
+    const txt = input.value.trim();
+    if (!txt) return;
     input.value = '';
-    sendMessage(text, 'text');
+    sendMessage(txt, State.humanTakeoverMode);
 }
 
-function onSearchChat(val) {
-    State.searchQuery = val;
-    loadChatMessages();
-}
-
-function promptSendPhoto() {
-    const url = prompt('Nhập link hình ảnh bạn muốn gửi cho người yêu:');
-    if (url && url.trim()) {
-        sendMessage('Em xem tấm ảnh này nè 💕', 'image', url.trim());
-    }
-}
-
-async function clearChatHistory() {
-    if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử trò chuyện?')) return;
-    try {
-        await api('/api/chat/clear', { method: 'POST', body: { lover_id: State.lover?.id } });
-        State.messages = [];
-        renderChatMessages();
-        showToast('Đã xóa lịch sử trò chuyện', 'info');
-    } catch (e) {
-        showToast(e.message, 'error');
-    }
+function onFilterChange(val) {
+    State.messageFilter = val;
+    loadMessages();
 }
 
 // ----------------------------------------------------
-// 2. VOICE & VIDEO CALL VIEW
+// 3. TRANG LỊCH TRÌNH (SCHEDULE CENTER)
 // ----------------------------------------------------
-function renderVoiceCallView() {
-    const l = State.lover;
-    const isVideo = State.callMode === 'video';
-
-    return `
-        <div class="h-full flex flex-col items-center justify-between glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 relative overflow-hidden shadow-2xl">
-            <!-- Background Glow Elements -->
-            <div class="absolute -top-20 -left-20 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
-            <div class="absolute -bottom-20 -right-20 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
-
-            <!-- Call Header & Mode Switcher -->
-            <div class="text-center z-10 w-full max-w-md">
-                <!-- Mode Switcher Pill -->
-                <div class="inline-flex p-1 rounded-2xl glass-pill mb-2 shadow-sm">
-                    <button onclick="setCallMode('voice')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition ${!isVideo ? 'btn-romantic shadow' : 'text-gray-600 dark:text-gray-400'}">
-                        📞 Gọi Thoại
-                    </button>
-                    <button onclick="setCallMode('video')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition ${isVideo ? 'btn-romantic shadow' : 'text-gray-600 dark:text-gray-400'}">
-                        📹 Gọi Video AI
-                    </button>
-                </div>
-
-                <h3 class="font-bold text-2xl mt-1">${l?.name || 'Người yêu AI'}</h3>
-                <p id="voice-timer" class="text-xs text-pink-500 font-mono mt-0.5">
-                    ${State.callActive ? formatDuration(State.callDuration) : (isVideo ? 'Sẵn sàng kết nối video trực tiếp' : 'Sẵn sàng gọi thoại hai chiều')}
-                </p>
-
-                <!-- Video Filter Selector (when in Video mode) -->
-                ${isVideo && State.callActive ? `
-                    <div class="flex items-center justify-center gap-1.5 mt-2">
-                        <span class="text-[10px] text-muted">Bộ lọc:</span>
-                        <button onclick="setVideoFilter('natural')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Tự nhiên</button>
-                        <button onclick="setVideoFilter('soft')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Mơ mộng</button>
-                        <button onclick="setVideoFilter('romantic')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Hồng phấn</button>
-                        <button onclick="setVideoFilter('cyber')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Điện ảnh</button>
-                    </div>
-                ` : ''}
-            </div>
-
-            <!-- Avatar / Video Center Screen -->
-            <div class="flex flex-col items-center my-auto z-10 relative w-full max-w-lg">
-                ${isVideo ? `
-                    <!-- Video Call Mode Display -->
-                    <div class="relative w-full aspect-[4/3] max-h-[340px] rounded-3xl overflow-hidden shadow-2xl border-2 border-white/60 dark:border-white/20 glass-panel flex items-center justify-center bg-black/20">
-                        <img id="ai-video-frame" src="${l?.avatar_url || ''}"
-                             class="w-full h-full object-cover transition-all duration-500 ${State.callActive ? 'scale-105 filter brightness-105' : ''}" />
-                        
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
-
-                        <!-- Live connection status badge -->
-                        <div class="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md text-white text-[11px] font-semibold">
-                            <span class="w-2 h-2 rounded-full ${State.callActive ? 'bg-emerald-400 animate-ping' : 'bg-gray-400'}"></span>
-                            <span>${State.callActive ? 'HD Video • 60 FPS' : 'Chế độ chờ'}</span>
-                        </div>
-
-                        <!-- User PIP (Picture-in-Picture) Webcam Stream -->
-                        <div class="pip-video-window bg-gray-900 border border-white/40 shadow-xl">
-                            <video id="user-pip-video" autoplay playsinline muted class="w-full h-full object-cover mirror-video"></video>
-                            <span class="absolute bottom-1 right-2 text-[9px] bg-black/60 text-white px-1.5 py-0.5 rounded">Bạn</span>
-                        </div>
-                    </div>
-                ` : `
-                    <!-- Voice Call Mode Display -->
-                    <div class="relative ${State.callActive ? 'animate-bounce' : ''}">
-                        <img src="${l?.avatar_url || ''}"
-                             class="w-36 h-36 md:w-44 md:h-44 rounded-full object-cover shadow-2xl avatar-glow border-4 border-white/60 dark:border-white/20" />
-                    </div>
-
-                    <!-- Animated Sound Wave Visualizer -->
-                    <div class="sound-wave mt-6 ${State.callActive ? 'opacity-100' : 'opacity-20'}">
-                        <div class="sound-bar"></div>
-                        <div class="sound-bar"></div>
-                        <div class="sound-bar"></div>
-                        <div class="sound-bar"></div>
-                        <div class="sound-bar"></div>
-                        <div class="sound-bar"></div>
-                        <div class="sound-bar"></div>
-                    </div>
-                `}
-
-                <!-- Live Voice Transcript / Subtitle -->
-                <div class="mt-4 px-6 py-3 rounded-2xl glass-panel max-w-md text-center border border-white/30 text-xs md:text-sm text-gray-700 dark:text-gray-200 min-h-[48px] flex items-center justify-center">
-                    ${escapeHtml(State.callTranscript || (isVideo ? 'Bật micro để trò chuyện video trực tiếp với người yêu AI!' : 'Nói chuyện trực tiếp qua micro, AI sẽ lắng nghe và tự động phản hồi bằng giọng nói!'))}
-                </div>
-            </div>
-
-            <!-- Call Controls -->
-            <div class="flex items-center gap-6 z-10 mb-2">
-                ${State.callActive ? `
-                    <button onclick="toggleMuteMicrophone()" class="p-4 rounded-full glass-panel hover:bg-white/60 dark:hover:bg-white/10 text-xl transition shadow-md" title="Bật/Tắt Micro">
-                        ${State.isMuted ? '🔇' : '🎙️'}
-                    </button>
-                    <button onclick="endVoiceCall()" class="p-5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-2xl shadow-xl hover:scale-105 active:scale-95 transition" title="Kết thúc cuộc gọi">
-                        📞
-                    </button>
-                    <button onclick="speakText(State.callTranscript)" class="p-4 rounded-full glass-panel hover:bg-white/60 dark:hover:bg-white/10 text-xl transition shadow-md" title="Phát lại giọng nói">
-                        🔊
-                    </button>
-                ` : `
-                    <button onclick="startVoiceCall()" class="px-8 py-4 rounded-full btn-romantic text-base font-bold flex items-center gap-3 shadow-2xl hover:scale-105 transition">
-                        <span class="text-2xl">${isVideo ? '📹' : '📞'}</span>
-                        <span>${isVideo ? 'Bắt đầu cuộc gọi video yêu thương' : 'Bắt đầu cuộc gọi thoại yêu thương'}</span>
-                    </button>
-                `}
-            </div>
-        </div>
-    `;
-}
-
-function renderVoiceCallTimer() {
-    const el = document.getElementById('voice-timer');
-    if (el && State.callActive) {
-        el.innerText = formatDuration(State.callDuration);
-    }
-}
-
-function toggleMuteMicrophone() {
-    State.isMuted = !State.isMuted;
-    if (State.speechRecognition) {
-        if (State.isMuted) {
-            State.speechRecognition.stop();
-        } else {
-            try { State.speechRecognition.start(); } catch (e) {}
-        }
-    }
-    showToast(State.isMuted ? 'Đã tắt Micro' : 'Đã bật Micro', 'info');
-    renderVoiceCallView();
-}
-
-// ----------------------------------------------------
-// 3. CREATE & CUSTOMIZE LOVER VIEW
-// ----------------------------------------------------
-function renderCreateLoverView() {
+function renderScheduleView() {
     const l = State.lover || {};
-    return `
-        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg">
-            <div class="max-w-2xl mx-auto space-y-6">
-                <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
-                    <h2 class="text-xl font-bold flex items-center gap-2">
-                        <span>✨</span>
-                        <span>Tạo & Tùy biến Người Yêu AI</span>
-                    </h2>
-                    <p class="text-xs text-muted mt-1">
-                        Thiết lập ngoại hình, phong cách, tính cách, cách xưng hô và giọng nói để tạo nên người bạn đồng hành hoàn hảo nhất của bạn.
-                    </p>
-                </div>
-
-                <form onsubmit="handleSaveLover(event)" class="space-y-5">
-                    <!-- Avatar Selection -->
-                    <div>
-                        <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">Ảnh đại diện & Ngoại hình</label>
-                        <div class="flex items-center gap-4 mb-3">
-                            <img id="preview-avatar" src="${l.avatar_url || AVATAR_PRESETS[0].url}" class="w-20 h-20 rounded-full object-cover avatar-glow border-2 border-pink-400" />
-                            <div class="flex-1">
-                                <input type="url" id="lover-avatar" value="${l.avatar_url || AVATAR_PRESETS[0].url}"
-                                       oninput="document.getElementById('preview-avatar').src = this.value"
-                                       placeholder="Dán link ảnh đại diện..."
-                                       class="w-full px-3.5 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                                <p class="text-[11px] text-muted mt-1">Hoặc chọn một phong cách có sẵn bên dưới:</p>
-                            </div>
-                        </div>
-
-                        <!-- Presets gallery -->
-                        <div class="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                            ${AVATAR_PRESETS.map((p, idx) => `
-                                <button type="button" onclick="selectPresetAvatar('${p.url}')" class="group relative rounded-xl overflow-hidden border-2 hover:border-pink-500 transition">
-                                    <img src="${p.url}" class="w-full h-14 object-cover" />
-                                    <span class="text-[9px] absolute inset-x-0 bottom-0 bg-black/60 text-white text-center py-0.5 truncate">${p.label}</span>
-                                </button>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <!-- Basic Info -->
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Tên người yêu</label>
-                            <input type="text" id="lover-name" value="${l.name || 'Mai Anh'}" required
-                                   class="w-full px-3.5 py-2 text-sm rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Giới tính</label>
-                            <select id="lover-gender" class="w-full px-3.5 py-2 text-sm rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400">
-                                <option value="female" ${l.gender === 'female' ? 'selected' : ''}>Nữ</option>
-                                <option value="male" ${l.gender === 'male' ? 'selected' : ''}>Nam</option>
-                                <option value="other" ${l.gender === 'other' ? 'selected' : ''}>Khác</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Tuổi nhân vật</label>
-                            <input type="number" id="lover-age" min="18" max="99" value="${l.age || 21}"
-                                   class="w-full px-3.5 py-2 text-sm rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                        </div>
-                    </div>
-
-                    <!-- Pronouns / Cách xưng hô -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-2xl bg-pink-50/50 dark:bg-pink-950/20 border border-pink-200/40">
-                        <div>
-                            <label class="block text-xs font-semibold text-pink-600 dark:text-pink-300 mb-1">Người yêu xưng là:</label>
-                            <input type="text" id="lover-pronouns-ai" value="${l.pronouns_ai || 'em'}" placeholder="em, bé, mình, tớ..."
-                                   class="w-full px-3.5 py-2 text-sm rounded-xl bg-white dark:bg-black/40 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-pink-600 dark:text-pink-300 mb-1">Người yêu gọi bạn là:</label>
-                            <input type="text" id="lover-pronouns-user" value="${l.pronouns_user || 'anh'}" placeholder="anh, cậu, người yêu..."
-                                   class="w-full px-3.5 py-2 text-sm rounded-xl bg-white dark:bg-black/40 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                        </div>
-                    </div>
-
-                    <!-- Personality & Style -->
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Tính cách đặc trưng</label>
-                            <input type="text" id="lover-personality" value="${l.personality || 'Dịu dàng, chu đáo, đôi lúc giận dỗi đáng yêu'}"
-                                   class="w-full px-3.5 py-2 text-sm rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                            <div class="flex flex-wrap gap-1.5 mt-2">
-                                ${['Dịu dàng', 'Ngọt ngào', 'Đáng yêu', 'Tinh nghịch', 'Trưởng thành', 'Lạnh lùng ngoài nóng trong', 'Hài hước', 'Lãng mạn'].map(trait => `
-                                    <button type="button" onclick="appendPersonality('${trait}')" class="text-[11px] px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 dark:hover:bg-pink-950 transition">
-                                        + ${trait}
-                                    </button>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Ngoại hình & Phong cách ăn mặc</label>
-                            <input type="text" id="lover-style" value="${l.style || 'Thanh lịch, dịu dàng, nụ cười tỏa nắng'}"
-                                   class="w-full px-3.5 py-2 text-sm rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                        </div>
-                    </div>
-
-                    <!-- Hobbies, Habits, Dislikes -->
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Sở thích</label>
-                            <textarea id="lover-hobbies" rows="2" class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400">${l.hobbies || 'Nghe nhạc, làm bánh, chụp ảnh phim'}</textarea>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Thói quen</label>
-                            <textarea id="lover-habits" rows="2" class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400">${l.habits || 'Thức khuya chờ tin nhắn, nhắc người yêu uống nước'}</textarea>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1">Điều không thích</label>
-                            <textarea id="lover-dislikes" rows="2" class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400">${l.dislikes || 'Người yêu bỏ bữa, bị bỏ lơ quá lâu'}</textarea>
-                        </div>
-                    </div>
-
-                    <!-- Voice Settings -->
-                    <div class="p-4 rounded-2xl glass-panel border border-pink-200/50 space-y-3">
-                        <h4 class="text-xs font-bold uppercase tracking-wider text-pink-600 dark:text-pink-300">Cài đặt giọng nói thoại</h4>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-[11px] mb-1">Tốc độ nói: <span id="val-rate">${l.voice_rate || 1.0}</span></label>
-                                <input type="range" id="lover-voice-rate" min="0.7" max="1.5" step="0.1" value="${l.voice_rate || 1.0}"
-                                       oninput="document.getElementById('val-rate').innerText = this.value"
-                                       class="w-full accent-pink-500" />
-                            </div>
-                            <div>
-                                <label class="block text-[11px] mb-1">Độ cao bổng (Pitch): <span id="val-pitch">${l.voice_pitch || 1.1}</span></label>
-                                <input type="range" id="lover-voice-pitch" min="0.8" max="1.6" step="0.1" value="${l.voice_pitch || 1.1}"
-                                       oninput="document.getElementById('val-pitch').innerText = this.value"
-                                       class="w-full accent-pink-500" />
-                            </div>
-                        </div>
-                        <button type="button" onclick="testVoice()" class="text-xs px-3 py-1.5 rounded-xl glass-pill hover:bg-pink-100 text-pink-500">
-                            🔊 Nghe thử giọng nói
-                        </button>
-                    </div>
-
-                    <div class="pt-2">
-                        <button type="submit" class="w-full py-3.5 rounded-2xl btn-romantic text-sm font-bold shadow-xl hover:scale-[1.01] transition">
-                            💾 Lưu thông tin người yêu ảo
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    `;
-}
-
-function selectPresetAvatar(url) {
-    const input = document.getElementById('lover-avatar');
-    const preview = document.getElementById('preview-avatar');
-    if (input) input.value = url;
-    if (preview) preview.src = url;
-}
-
-function appendPersonality(trait) {
-    const el = document.getElementById('lover-personality');
-    if (el) {
-        if (!el.value.includes(trait)) {
-            el.value = el.value ? `${el.value}, ${trait}` : trait;
-        }
-    }
-}
-
-function testVoice() {
-    const rate = parseFloat(document.getElementById('lover-voice-rate')?.value || 1.0);
-    const pitch = parseFloat(document.getElementById('lover-voice-pitch')?.value || 1.1);
-    const text = 'Chào anh yêu! Giọng nói này của em đã đủ ấm áp và ngọt ngào chưa anh?';
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'vi-VN';
-    u.rate = rate;
-    u.pitch = pitch;
-    window.speechSynthesis.speak(u);
-}
-
-async function handleSaveLover(e) {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('lover-name').value.trim(),
-        gender: document.getElementById('lover-gender').value,
-        age: parseInt(document.getElementById('lover-age').value) || 21,
-        avatar_url: document.getElementById('lover-avatar').value.trim(),
-        pronouns_ai: document.getElementById('lover-pronouns-ai').value.trim(),
-        pronouns_user: document.getElementById('lover-pronouns-user').value.trim(),
-        personality: document.getElementById('lover-personality').value.trim(),
-        style: document.getElementById('lover-style').value.trim(),
-        hobbies: document.getElementById('lover-hobbies').value.trim(),
-        habits: document.getElementById('lover-habits').value.trim(),
-        dislikes: document.getElementById('lover-dislikes').value.trim(),
-        voice_rate: parseFloat(document.getElementById('lover-voice-rate')?.value || 1.0),
-        voice_pitch: parseFloat(document.getElementById('lover-voice-pitch')?.value || 1.1)
-    };
-
-    try {
-        const res = await api('/api/lover', { method: 'POST', body: payload });
-        State.lover = res.lover;
-        showToast('Đã lưu thông tin người yêu thành công! 💕', 'success');
-        switchTab('chat');
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-// ----------------------------------------------------
-// 4. LOVE DIARY & MEMORIES VIEW
-// ----------------------------------------------------
-function renderDiaryView() {
-    const l = State.lover;
-    const days = l?.first_met_date ? calculateDaysTogether(l.first_met_date) : 1;
-
-    return `
-        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
-            <!-- Love Counter Banner -->
-            <div class="p-6 rounded-3xl btn-romantic text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div class="text-center sm:text-left">
-                    <span class="text-xs font-semibold bg-white/20 px-3 py-1 rounded-full uppercase tracking-wider">Hành trình tình yêu</span>
-                    <h3 class="serif-font text-2xl sm:text-3xl font-bold mt-2">Chúng mình đã bên nhau</h3>
-                    <p class="text-xs text-white/80 mt-1">Bắt đầu từ ngày ${l?.first_met_date || 'ngày đầu tiên'}</p>
-                </div>
-                <div class="text-center bg-white/20 px-6 py-3 rounded-2xl backdrop-blur-md">
-                    <span class="text-4xl font-extrabold">${days}</span>
-                    <span class="text-xs block font-medium uppercase tracking-wider">Ngày trọn vẹn</span>
-                </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="flex items-center justify-between">
-                <h3 class="font-bold text-lg flex items-center gap-2">
-                    <span>📖</span>
-                    <span>Nhật ký & Album kỷ niệm</span>
-                </h3>
-                <div class="flex gap-2">
-                    <button onclick="promptNewDiary()" class="px-3.5 py-2 rounded-xl btn-romantic text-xs font-semibold flex items-center gap-1.5 shadow">
-                        <span>✍️</span> <span>Viết nhật ký</span>
-                    </button>
-                    <button onclick="promptNewPhoto()" class="px-3.5 py-2 rounded-xl glass-panel hover:bg-white/60 text-xs font-semibold flex items-center gap-1.5 shadow">
-                        <span>📷</span> <span>Thêm ảnh</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Diary Entries Grid -->
-            <div class="space-y-3.5">
-                ${State.diaries.length === 0 ? `
-                    <div class="p-6 text-center text-muted glass-panel rounded-2xl">
-                        Chưa có trang nhật ký nào. Hãy viết kỷ niệm đầu tiên của hai đứa nhé! 💕
-                    </div>
-                ` : State.diaries.map(d => `
-                    <div class="p-4 rounded-2xl glass-panel border border-white/30 flex flex-col md:flex-row gap-4 relative group">
-                        ${d.photo_url ? `
-                            <img src="${d.photo_url}" class="w-full md:w-36 h-32 object-cover rounded-xl shadow" />
-                        ` : ''}
-                        <div class="flex-1">
-                            <div class="flex items-center justify-between">
-                                <h4 class="font-bold text-base text-pink-600 dark:text-pink-300">${escapeHtml(d.title)}</h4>
-                                <span class="text-[11px] text-muted">${d.entry_date} • ${d.mood}</span>
-                            </div>
-                            <p class="text-xs text-gray-700 dark:text-gray-300 mt-2 leading-relaxed whitespace-pre-wrap">${escapeHtml(d.content)}</p>
-                        </div>
-                        <button onclick="deleteDiary(${d.id})" class="absolute top-3 right-3 text-xs text-rose-500 opacity-0 group-hover:opacity-100 transition p-1 hover:bg-rose-50 rounded">
-                            🗑️
-                        </button>
-                    </div>
-                `).join('')}
-            </div>
-
-            <!-- Photo Album Section -->
-            <div>
-                <h4 class="font-bold text-base mb-3 flex items-center gap-2">
-                    <span>🖼️</span> <span>Album ảnh tình yêu</span>
-                </h4>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    ${State.photos.map(p => `
-                        <div class="rounded-2xl overflow-hidden glass-panel border border-white/30 group relative shadow">
-                            <img src="${p.image_url}" class="w-full h-32 object-cover group-hover:scale-105 transition duration-300" />
-                            <div class="p-2 text-[11px] truncate font-medium">${escapeHtml(p.caption)}</div>
-                            <button onclick="deletePhoto(${p.id})" class="absolute top-2 right-2 text-xs bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition">
-                                ✕
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-async function promptNewDiary() {
-    const title = prompt('Tiêu đề nhật ký (ví dụ: Ngày chúng mình dạo phố):');
-    if (!title) return;
-    const content = prompt('Nội dung kỷ niệm:');
-    if (!content) return;
-    const mood = prompt('Cảm xúc hôm nay (ví dụ: Hạnh phúc, Ngọt ngào, Bồi hồi):') || 'Hạnh phúc';
-    const photo_url = prompt('Link ảnh kèm theo (tùy chọn):') || '';
-
-    try {
-        await api('/api/diary', {
-            method: 'POST',
-            body: { lover_id: State.lover?.id, title, content, mood, photo_url }
-        });
-        showToast('Đã lưu trang nhật ký mới! ✨', 'success');
-        loadDiaries();
-    } catch (e) {
-        showToast(e.message, 'error');
-    }
-}
-
-async function promptNewPhoto() {
-    const url = prompt('Dán link ảnh kỷ niệm:');
-    if (!url) return;
-    const caption = prompt('Chú thích cho bức ảnh:') || 'Kỷ niệm tình yêu';
-    try {
-        await api('/api/album', {
-            method: 'POST',
-            body: { lover_id: State.lover?.id, image_url: url, caption }
-        });
-        showToast('Đã thêm ảnh vào album! 💕', 'success');
-        loadPhotos();
-    } catch (e) {
-        showToast(e.message, 'error');
-    }
-}
-
-async function deleteDiary(id) {
-    if (!confirm('Xóa trang nhật ký này?')) return;
-    try {
-        await api(`/api/diary/${id}`, { method: 'DELETE' });
-        loadDiaries();
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function deletePhoto(id) {
-    if (!confirm('Xóa ảnh này?')) return;
-    try {
-        await api(`/api/album/${id}`, { method: 'DELETE' });
-        loadPhotos();
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-// ----------------------------------------------------
-// 5. LONG-TERM MEMORIES & EMOTION VIEW
-// ----------------------------------------------------
-function renderMemoriesView() {
-    const l = State.lover;
-    let emo = { mood: 'happy', affection: 90, jealousy: 10, energy: 85 };
-    try {
-        if (l?.emotion_state) emo = JSON.parse(l.emotion_state);
-    } catch (e) {}
-
-    return `
-        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
-            <!-- Header & Emotion Radar -->
-            <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h2 class="text-xl font-bold flex items-center gap-2">
-                            <span>🧠</span>
-                            <span>Trí Nhớ Dài Hạn & Cảm Xúc AI</span>
-                        </h2>
-                        <p class="text-xs text-muted mt-1">
-                            Hệ thống ghi nhớ các thông tin quan trọng (sinh nhật, sở thích, lời hứa) để AI không bao giờ quên và phản hồi tự nhiên nhất.
-                        </p>
-                    </div>
-                    <button onclick="promptNewMemory()" class="px-4 py-2 rounded-xl btn-romantic text-xs font-bold shadow">
-                        + Thêm ký ức
-                    </button>
-                </div>
-
-                <!-- Emotion Status Meters -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-                    <div class="p-3 rounded-2xl glass-panel border border-pink-200/40 text-center">
-                        <span class="text-xs text-muted">Trạng thái tâm trạng</span>
-                        <h4 class="font-bold text-sm text-pink-600 capitalize mt-1">${emo.mood || 'Hạnh phúc'} ✨</h4>
-                    </div>
-                    <div class="p-3 rounded-2xl glass-panel border border-pink-200/40 text-center">
-                        <span class="text-xs text-muted">Mức độ yêu thương</span>
-                        <h4 class="font-bold text-sm text-pink-600 mt-1">${emo.affection || 90}% 💕</h4>
-                    </div>
-                    <div class="p-3 rounded-2xl glass-panel border border-pink-200/40 text-center">
-                        <span class="text-xs text-muted">Mức độ giận dỗi / ghen</span>
-                        <h4 class="font-bold text-sm text-purple-600 mt-1">${emo.jealousy || 10}% 😤</h4>
-                    </div>
-                    <div class="p-3 rounded-2xl glass-panel border border-pink-200/40 text-center">
-                        <span class="text-xs text-muted">Năng lượng trò chuyện</span>
-                        <h4 class="font-bold text-sm text-emerald-600 mt-1">${emo.energy || 85}% ⚡</h4>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Memories List -->
-            <div class="space-y-3">
-                <h3 class="font-bold text-sm text-gray-700 dark:text-gray-300">Danh sách ký ức đã lưu (${State.memories.length})</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    ${State.memories.map(m => `
-                        <div class="p-3.5 rounded-2xl glass-panel border border-white/40 dark:border-white/10 flex items-start justify-between gap-3 group">
-                            <div class="flex-1">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950 text-pink-600 font-semibold uppercase text-[10px]">
-                                        ${m.category}
-                                    </span>
-                                    <span class="text-amber-500 text-xs">${'★'.repeat(m.importance || 3)}</span>
-                                </div>
-                                <h4 class="font-bold text-sm mt-1 text-gray-800 dark:text-gray-200">${escapeHtml(m.key_fact)}</h4>
-                                ${m.detail ? `<p class="text-xs text-muted mt-1">${escapeHtml(m.detail)}</p>` : ''}
-                            </div>
-                            <button onclick="deleteMemory(${m.id})" class="text-xs text-rose-500 opacity-0 group-hover:opacity-100 hover:bg-rose-50 p-1.5 rounded transition">
-                                🗑️
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-async function promptNewMemory() {
-    const key_fact = prompt('Thông tin quan trọng cần AI ghi nhớ (ví dụ: Anh thích ăn bún bò Huế):');
-    if (!key_fact) return;
-    const detail = prompt('Chi tiết bổ sung (tùy chọn):') || '';
-    const category = prompt('Danh mục (fact / preference / promise / important_date):') || 'preference';
-
-    try {
-        await api('/api/memories', {
-            method: 'POST',
-            body: { lover_id: State.lover?.id, key_fact, detail, category, importance: 4 }
-        });
-        showToast('Đã lưu ký ức mới vào bộ nhớ dài hạn!', 'success');
-        loadMemories();
-    } catch (e) {
-        showToast(e.message, 'error');
-    }
-}
-
-async function deleteMemory(id) {
-    if (!confirm('Xóa ký ức này khỏi bộ nhớ của AI?')) return;
-    try {
-        await api(`/api/memories/${id}`, { method: 'DELETE' });
-        loadMemories();
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-// ----------------------------------------------------
-// 6. MESSENGER INTEGRATION & SANDBOX VIEW
-// ----------------------------------------------------
-function renderMessengerView() {
-    return `
-        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
-            <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
-                <div class="flex items-center gap-2">
-                    <span class="text-2xl">⚡</span>
-                    <div>
-                        <h2 class="text-xl font-bold">Tích Hợp Facebook Messenger</h2>
-                        <p class="text-xs text-muted mt-0.5">
-                            Kết nối thông qua Messenger Platform API chính thức của Meta hoặc kiểm thử ngay với bộ giả lập Webhook Sandbox.
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Integration Credentials & Webhook URLs -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-3">
-                    <h4 class="font-bold text-sm text-pink-600 dark:text-pink-300">Thông tin cấu hình Webhook (Meta Developer)</h4>
-                    
-                    <div>
-                        <label class="block text-[11px] font-semibold text-muted mb-1">Callback URL (Webhook Endpoint):</label>
-                        <div class="flex gap-2">
-                            <input id="meta-webhook-url" readonly value="${window.location.origin}/api/messenger/webhook"
-                                   class="flex-1 px-3 py-1.5 text-xs rounded-xl bg-white/50 dark:bg-black/30 border border-white/40 font-mono" />
-                            <button onclick="copyToClipboard('meta-webhook-url')" class="px-3 py-1.5 rounded-xl glass-pill text-xs font-semibold hover:bg-pink-100">
-                                Copy
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-[11px] font-semibold text-muted mb-1">Verify Token:</label>
-                        <div class="flex gap-2">
-                            <input id="meta-verify-token" readonly value="virtual_ai_lover_verify_2026"
-                                   class="flex-1 px-3 py-1.5 text-xs rounded-xl bg-white/50 dark:bg-black/30 border border-white/40 font-mono" />
-                            <button onclick="copyToClipboard('meta-verify-token')" class="px-3 py-1.5 rounded-xl glass-pill text-xs font-semibold hover:bg-pink-100">
-                                Copy
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="pt-2">
-                        <span class="text-[11px] px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
-                            ● Webhook Endpoint sẵn sàng nhận GET/POST
-                        </span>
-                    </div>
-                </div>
-
-                <!-- Token input form -->
-                <form onsubmit="handleSaveMessengerConfig(event)" class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-3">
-                    <h4 class="font-bold text-sm text-purple-600 dark:text-purple-300">Thông tin xác thực Meta Page</h4>
-                    <div>
-                        <label class="block text-[11px] font-semibold mb-1">Page Access Token:</label>
-                        <input type="password" id="meta-page-token" placeholder="EAA..."
-                               class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-semibold mb-1">App Secret:</label>
-                        <input type="password" id="meta-app-secret" placeholder="Mã bí mật ứng dụng Meta..."
-                               class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-                    <button type="submit" class="w-full py-2 rounded-xl btn-romantic text-xs font-bold shadow">
-                        💾 Lưu cấu hình Messenger
-                    </button>
-                </form>
-            </div>
-
-            <!-- Messenger Simulator Sandbox -->
-            <div class="p-5 rounded-3xl glass-panel border border-pink-300/60 dark:border-pink-800/60 space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="font-bold text-base flex items-center gap-2">
-                            <span>📱</span>
-                            <span>Bộ Giả Lập Messenger Sandbox</span>
-                        </h3>
-                        <p class="text-xs text-muted">Thử nghiệm gửi tin nhắn từ phía Facebook Messenger để kiểm tra khả năng phản hồi và đồng bộ hội thoại.</p>
-                    </div>
-                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Demo Sandbox</span>
-                </div>
-
-                <div class="flex gap-2">
-                    <input id="sim-msg-input" type="text" placeholder="Nhập tin nhắn giả lập từ Messenger (Ví dụ: Em ơi anh nhớ em)..."
-                           class="flex-1 px-4 py-2.5 text-sm rounded-2xl bg-white/80 dark:bg-black/40 border border-pink-200/50 focus:outline-none focus:ring-1 focus:ring-pink-400" />
-                    <button onclick="handleSimulateMessenger()" class="px-5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-lg transition">
-                        Gửi giả lập ⚡
-                    </button>
-                </div>
-
-                <div id="sim-response-box" class="p-4 rounded-2xl bg-black/5 dark:bg-white/5 border border-dashed border-gray-300 dark:border-gray-700 text-xs min-h-[60px] flex items-center justify-center text-muted">
-                    Chưa có sự kiện giả lập nào được gửi đi.
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-async function handleSimulateMessenger() {
-    const input = document.getElementById('sim-msg-input');
-    const box = document.getElementById('sim-response-box');
-    if (!input || !box) return;
-    const text = input.value.trim();
-    if (!text) return;
-
-    box.innerHTML = 'Đang gửi sự kiện Webhook Meta tới backend...';
-    try {
-        const res = await api('/api/messenger/simulate', {
-            method: 'POST',
-            body: { text, sender_id: 'fb_user_demo_888' }
-        });
-        const reply = res.processed?.[0]?.ai_reply || 'Đã xử lý';
-        box.innerHTML = `
-            <div class="w-full space-y-1 text-left">
-                <p class="font-semibold text-blue-600">✓ Webhook nhận tin thành công:</p>
-                <p class="text-gray-700 dark:text-gray-300">Tin nhắn người dùng: <strong>"${escapeHtml(text)}"</strong></p>
-                <p class="text-pink-600 dark:text-pink-300 font-medium">Người yêu AI phản hồi: <strong>"${escapeHtml(reply)}"</strong></p>
-                <p class="text-[10px] text-muted">Đồng bộ tự động vào lịch sử trò chuyện trên website!</p>
-            </div>
-        `;
-        input.value = '';
-        showToast('Giả lập Messenger thành công!', 'success');
-    } catch (e) {
-        box.innerHTML = `<span class="text-rose-500">Lỗi: ${escapeHtml(e.message)}</span>`;
-    }
-}
-
-async function handleSaveMessengerConfig(e) {
-    e.preventDefault();
-    const pageToken = document.getElementById('meta-page-token').value.trim();
-    const appSecret = document.getElementById('meta-app-secret').value.trim();
-    try {
-        await api('/api/messenger/config', {
-            method: 'POST',
-            body: { page_access_token: pageToken, app_secret: appSecret }
-        });
-        showToast('Đã lưu cấu hình Messenger thành công!', 'success');
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function copyToClipboard(elementId) {
-    const el = document.getElementById(elementId);
-    if (!el) return;
-    navigator.clipboard.writeText(el.value);
-    showToast('Đã sao chép vào bộ nhớ tạm!', 'success');
-}
-
-// ----------------------------------------------------
-// 7. SETTINGS VIEW
-// ----------------------------------------------------
-function renderSettingsView() {
-    const l = State.lover;
-    const u = State.user;
-
     return `
         <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
             <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
                 <h2 class="text-xl font-bold flex items-center gap-2">
-                    <span>⚙️</span>
-                    <span>Trung Tâm Cài Đặt Hệ Thống</span>
+                    <span>⏰</span> <span>Hệ Thống Lịch Trình Nhắn Tin Tự Động</span>
                 </h2>
-                <p class="text-xs text-muted mt-0.5">Quản lý lịch trình nhắn tin chủ động, thông báo và dữ liệu cá nhân.</p>
+                <p class="text-xs text-muted mt-1">
+                    Thiết lập các khung giờ cô người yêu AI chủ động gửi tin nhắn quan tâm, hỏi han và chúc ngủ ngon mỗi ngày.
+                </p>
             </div>
 
-            <!-- Proactive Messaging Scheduler Settings -->
-            <div class="p-5 rounded-3xl glass-panel border border-pink-200/40 space-y-4">
-                <h3 class="font-bold text-sm text-pink-600 dark:text-pink-300 flex items-center gap-2">
-                    <span>⏰</span> <span>Lịch Trình AI Chủ Động Nhắn Tin Hỏi Thăm</span>
-                </h3>
-                
+            <form onsubmit="handleSaveSchedule(event)" class="space-y-4">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="p-3.5 rounded-2xl bg-white/40 dark:bg-white/5 border border-white/30 space-y-2">
-                        <label class="flex items-center gap-2 text-xs font-semibold">
-                            <input type="checkbox" id="set-morning" ${l?.enable_morning_msg ? 'checked' : ''} class="accent-pink-500 rounded" />
-                            <span>Tự động chào buổi sáng</span>
-                        </label>
-                        <input type="time" id="set-morning-time" value="${l?.morning_greeting_time || '07:30'}"
-                               class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/80 dark:bg-black/30 border border-pink-200/50" />
+                    <!-- Morning -->
+                    <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-2 text-xs font-bold text-pink-600 dark:text-pink-300">
+                                <input type="checkbox" id="sch-morning-enable" ${l.enable_morning ? 'checked' : ''} class="accent-pink-500" />
+                                <span>🌅 Chào buổi sáng</span>
+                            </label>
+                            <input type="time" id="sch-morning-time" value="${l.morning_time || '07:30'}" class="px-2 py-1 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                        </div>
+                        <p class="text-[11px] text-muted">"Chào buổi sáng anh yêu ❤️ Anh dậy chưa đó? Nhớ ăn sáng nha."</p>
                     </div>
 
-                    <div class="p-3.5 rounded-2xl bg-white/40 dark:bg-white/5 border border-white/30 space-y-2">
-                        <label class="flex items-center gap-2 text-xs font-semibold">
-                            <input type="checkbox" id="set-night" ${l?.enable_night_msg ? 'checked' : ''} class="accent-pink-500 rounded" />
-                            <span>Tự động chúc ngủ ngon</span>
-                        </label>
-                        <input type="time" id="set-night-time" value="${l?.night_greeting_time || '22:30'}"
-                               class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/80 dark:bg-black/30 border border-pink-200/50" />
+                    <!-- Lunch -->
+                    <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-2 text-xs font-bold text-purple-600 dark:text-purple-300">
+                                <input type="checkbox" id="sch-lunch-enable" ${l.enable_lunch ? 'checked' : ''} class="accent-purple-500" />
+                                <span>🍱 Hỏi thăm bữa trưa</span>
+                            </label>
+                            <input type="time" id="sch-lunch-time" value="${l.lunch_time || '12:00'}" class="px-2 py-1 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                        </div>
+                        <p class="text-[11px] text-muted">"Anh ăn cơm chưa nè? Đừng làm việc nhiều quá nha, nhớ nghỉ ngơi đó."</p>
+                    </div>
+
+                    <!-- Afternoon -->
+                    <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-2 text-xs font-bold text-pink-600 dark:text-pink-300">
+                                <input type="checkbox" id="sch-afternoon-enable" ${l.enable_afternoon ? 'checked' : ''} class="accent-pink-500" />
+                                <span>🌇 Tan làm buổi chiều</span>
+                            </label>
+                            <input type="time" id="sch-afternoon-time" value="${l.afternoon_time || '17:30'}" class="px-2 py-1 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                        </div>
+                        <p class="text-[11px] text-muted">"Hôm nay anh có mệt không? Em muốn nghe anh kể chuyện hôm nay."</p>
+                    </div>
+
+                    <!-- Night -->
+                    <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-2 text-xs font-bold text-purple-600 dark:text-purple-300">
+                                <input type="checkbox" id="sch-night-enable" ${l.enable_night ? 'checked' : ''} class="accent-purple-500" />
+                                <span>🌙 Chúc ngủ ngon</span>
+                            </label>
+                            <input type="time" id="sch-night-time" value="${l.night_time || '22:30'}" class="px-2 py-1 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                        </div>
+                        <p class="text-[11px] text-muted">"Anh đang làm gì đó? Em chúc anh ngủ ngon, mơ thấy em nha ❤️"</p>
                     </div>
                 </div>
 
-                <div>
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-2">
                     <label class="flex items-center gap-2 text-xs font-semibold">
-                        <input type="checkbox" id="set-random-care" ${l?.enable_random_care ? 'checked' : ''} class="accent-pink-500 rounded" />
-                        <span>Chủ động gửi lời nhắc uống nước, ăn cơm và quan tâm bất ngờ trong ngày</span>
+                        <input type="checkbox" id="sch-idle-enable" ${l.enable_idle_checkin ? 'checked' : ''} class="accent-pink-500" />
+                        <span>Chủ động bắt chuyện khi cuộc trò chuyện lâu không có tin nhắn (>10 tiếng)</span>
                     </label>
                 </div>
 
-                <button onclick="saveScheduleSettings()" class="px-5 py-2.5 rounded-xl btn-romantic text-xs font-bold shadow">
-                    💾 Cập nhật lịch trình nhắn tin
-                </button>
-            </div>
-
-            <!-- User Profile Settings -->
-            <div class="p-5 rounded-3xl glass-panel border border-pink-200/40 space-y-4">
-                <h3 class="font-bold text-sm text-purple-600 dark:text-purple-300">Thông tin cá nhân của bạn</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-xs font-semibold mb-1">Tên bạn</label>
-                        <input type="text" id="set-user-name" value="${u?.display_name || ''}" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1">Ngày sinh nhật</label>
-                        <input type="date" id="set-user-bday" value="${u?.birthday || ''}" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1">Nghề nghiệp / Ngành học</label>
-                        <input type="text" id="set-user-job" value="${u?.job || ''}" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-                </div>
-                <button onclick="saveUserProfile()" class="px-5 py-2 rounded-xl btn-romantic text-xs font-bold shadow">
-                    Lưu thông tin cá nhân
-                </button>
-            </div>
-
-            <!-- Danger Zone -->
-            <div class="p-5 rounded-3xl glass-panel border border-rose-300/50 space-y-3">
-                <h3 class="font-bold text-sm text-rose-600">Quản lý dữ liệu an toàn</h3>
-                <div class="flex flex-wrap gap-3">
-                    <button onclick="clearChatHistory()" class="px-4 py-2 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-semibold">
-                        Xóa toàn bộ lịch sử chat
-                    </button>
-                    <button onclick="exportChatHistory()" class="px-4 py-2 rounded-xl glass-pill hover:bg-white/60 text-xs font-semibold">
-                        Tải về lịch sử trò chuyện (.txt)
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-async function saveScheduleSettings() {
-    const payload = {
-        enable_morning_msg: document.getElementById('set-morning').checked,
-        morning_greeting_time: document.getElementById('set-morning-time').value,
-        enable_night_msg: document.getElementById('set-night').checked,
-        night_greeting_time: document.getElementById('set-night-time').value,
-        enable_random_care: document.getElementById('set-random-care').checked
-    };
-    try {
-        const res = await api('/api/lover', { method: 'POST', body: payload });
-        State.lover = res.lover;
-        showToast('Đã lưu lịch trình nhắn tin chủ động!', 'success');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function saveUserProfile() {
-    const payload = {
-        user_display_name: document.getElementById('set-user-name').value.trim(),
-        user_birthday: document.getElementById('set-user-bday').value,
-        user_job: document.getElementById('set-user-job').value.trim()
-    };
-    try {
-        await api('/api/lover', { method: 'POST', body: payload });
-        State.user.display_name = payload.user_display_name;
-        State.user.birthday = payload.user_birthday;
-        State.user.job = payload.user_job;
-        showToast('Đã cập nhật thông tin cá nhân!', 'success');
-        renderApp();
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-function exportChatHistory() {
-    if (State.messages.length === 0) {
-        showToast('Chưa có tin nhắn để xuất', 'info');
-        return;
-    }
-    const lines = State.messages.map(m => `[${m.created_at}] ${m.sender === 'user' ? 'Bạn' : State.lover?.name}: ${m.content}`);
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `lich_su_tinh_yeu_${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('Đã tải xuống lịch sử trò chuyện!', 'success');
-}
-
-// ----------------------------------------------------
-// 8. ADMIN DASHBOARD VIEW
-// ----------------------------------------------------
-function renderAdminView() {
-    const s = State.adminStats?.stats || { users: 0, lovers: 0, messages: 0, voice_calls: 0, memories: 0, diaries: 0 };
-    const users = State.adminStats?.users || [];
-    const cfg = State.adminSettings || {};
-
-    return `
-        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
-            <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4 flex items-center justify-between">
-                <div>
-                    <h2 class="text-xl font-bold flex items-center gap-2">
-                        <span>🛡️</span>
-                        <span>Trang Quản Trị Hệ Thống (Admin Control Panel)</span>
-                    </h2>
-                    <p class="text-xs text-muted mt-0.5">Theo dõi hoạt động, quản lý người dùng, cấu hình API AI và kiểm soát vận hành.</p>
-                </div>
-                <span class="text-xs px-3 py-1 rounded-full bg-purple-100 text-purple-700 font-bold">Admin Zone</span>
-            </div>
-
-            <!-- Stats Overview Cards -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <div class="p-4 rounded-2xl glass-panel text-center border border-pink-200/40">
-                    <span class="text-xs text-muted">Người dùng</span>
-                    <h3 class="text-2xl font-black text-pink-600 mt-1">${s.users}</h3>
-                </div>
-                <div class="p-4 rounded-2xl glass-panel text-center border border-pink-200/40">
-                    <span class="text-xs text-muted">Nhân vật AI</span>
-                    <h3 class="text-2xl font-black text-purple-600 mt-1">${s.lovers}</h3>
-                </div>
-                <div class="p-4 rounded-2xl glass-panel text-center border border-pink-200/40">
-                    <span class="text-xs text-muted">Tin nhắn</span>
-                    <h3 class="text-2xl font-black text-blue-600 mt-1">${s.messages}</h3>
-                </div>
-                <div class="p-4 rounded-2xl glass-panel text-center border border-pink-200/40">
-                    <span class="text-xs text-muted">Cuộc gọi thoại</span>
-                    <h3 class="text-2xl font-black text-emerald-600 mt-1">${s.voice_calls}</h3>
-                </div>
-                <div class="p-4 rounded-2xl glass-panel text-center border border-pink-200/40">
-                    <span class="text-xs text-muted">Ký ức lưu trữ</span>
-                    <h3 class="text-2xl font-black text-amber-600 mt-1">${s.memories}</h3>
-                </div>
-                <div class="p-4 rounded-2xl glass-panel text-center border border-pink-200/40">
-                    <span class="text-xs text-muted">Trang nhật ký</span>
-                    <h3 class="text-2xl font-black text-rose-600 mt-1">${s.diaries}</h3>
-                </div>
-            </div>
-
-            <!-- AI API & System Prompts Configuration -->
-            <form onsubmit="handleSaveAdminSettings(event)" class="p-5 rounded-3xl glass-panel border border-pink-200/40 space-y-4">
-                <h3 class="font-bold text-sm text-pink-600 dark:text-pink-300">Cấu hình Mô hình Trí tuệ Nhân tạo (AI LLM Provider)</h3>
-                
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-xs font-semibold mb-1">Nhà cung cấp AI:</label>
-                        <select id="cfg-provider" class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50">
-                            <option value="gemini" ${cfg.ai_provider === 'gemini' ? 'selected' : ''}>Google Gemini API</option>
-                            <option value="openai" ${cfg.ai_provider === 'openai' ? 'selected' : ''}>OpenAI Compatible</option>
-                            <option value="mock" ${cfg.ai_provider === 'mock' ? 'selected' : ''}>Chế độ Giả lập Tinh vi (Offline)</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-semibold mb-1">Google Gemini API Key:</label>
-                        <input type="password" id="cfg-gemini-key" value="${cfg.gemini_api_key || ''}" placeholder="AIzaSy..."
-                               class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-semibold mb-1">Gemini Model:</label>
-                        <input type="text" id="cfg-gemini-model" value="${cfg.gemini_model || 'gemini-1.5-flash'}"
-                               class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-semibold mb-1">System Prompt Nền Tảng (Base Prompt):</label>
-                    <textarea id="cfg-prompt" rows="3" class="w-full px-3 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50">${cfg.system_prompt_base || ''}</textarea>
-                </div>
-
-                <button type="submit" class="px-6 py-2.5 rounded-xl btn-romantic text-xs font-bold shadow">
-                    💾 Lưu cấu hình AI & Hệ thống
+                <button type="submit" class="px-6 py-3 rounded-2xl btn-romantic text-xs font-bold shadow-lg">
+                    💾 Lưu cấu hình lịch trình
                 </button>
             </form>
+        </div>
+    `;
+}
 
-            <!-- User Management Table -->
-            <div class="space-y-3">
-                <h3 class="font-bold text-sm text-gray-700 dark:text-gray-300">Danh sách người dùng hệ thống</h3>
-                <div class="overflow-x-auto rounded-2xl border border-white/40 dark:border-white/10 glass-panel">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-pink-100/50 dark:bg-white/5 uppercase text-gray-600 dark:text-gray-400">
-                            <tr>
-                                <th class="p-3">ID</th>
-                                <th class="p-3">Tên hiển thị</th>
-                                <th class="p-3">Email</th>
-                                <th class="p-3">Vai trò</th>
-                                <th class="p-3">Ngày tạo</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-pink-100/40 dark:divide-white/5">
-                            ${users.map(u => `
-                                <tr>
-                                    <td class="p-3 font-mono font-bold">${u.id}</td>
-                                    <td class="p-3 font-semibold">${escapeHtml(u.display_name)}</td>
-                                    <td class="p-3 text-muted">${escapeHtml(u.email)}</td>
-                                    <td class="p-3"><span class="px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-gray-100 text-gray-700'}">${u.role}</span></td>
-                                    <td class="p-3 text-muted">${u.created_at || ''}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+async function handleSaveSchedule(e) {
+    e.preventDefault();
+    const payload = {
+        morning_time: document.getElementById('sch-morning-time').value,
+        lunch_time: document.getElementById('sch-lunch-time').value,
+        afternoon_time: document.getElementById('sch-afternoon-time').value,
+        night_time: document.getElementById('sch-night-time').value,
+        enable_morning: document.getElementById('sch-morning-enable').checked ? 1 : 0,
+        enable_lunch: document.getElementById('sch-lunch-enable').checked ? 1 : 0,
+        enable_afternoon: document.getElementById('sch-afternoon-enable').checked ? 1 : 0,
+        enable_night: document.getElementById('sch-night-enable').checked ? 1 : 0,
+        enable_idle_checkin: document.getElementById('sch-idle-enable').checked ? 1 : 0
+    };
+    try {
+        await api('/api/schedule/settings', { method: 'POST', body: payload });
+        showToast('Đã lưu lịch trình nhắn tin tự động thành công!', 'success');
+        await loadOverviewData();
+    } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ----------------------------------------------------
+// 4. TRANG TÍNH CÁCH (PERSONALITY LAB)
+// ----------------------------------------------------
+function renderPersonalityView() {
+    const l = State.lover || {};
+    return `
+        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
+            <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
+                <h2 class="text-xl font-bold flex items-center gap-2">
+                    <span>✨</span> <span>Tùy Chỉnh Tính Cách & Giọng Nói Cô Người Yêu AI</span>
+                </h2>
+                <p class="text-xs text-muted mt-1">Điều chỉnh các thanh trượt tính cách để AI tương tác đúng phong cách bạn mong muốn.</p>
+            </div>
+
+            <form onsubmit="handleSavePersonality(event)" class="space-y-5 max-w-2xl">
+                <!-- Sliders -->
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span>🌸 Mức độ Dịu dàng & Quan tâm:</span>
+                            <span id="badge-gentleness" class="text-pink-600 font-bold">${l.trait_gentleness || 95}%</span>
+                        </div>
+                        <input type="range" id="val-gentleness" min="10" max="100" value="${l.trait_gentleness || 95}"
+                               oninput="document.getElementById('badge-gentleness').innerText = this.value + '%'"
+                               class="w-full accent-pink-500" />
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span>💖 Mức độ Lãng mạn & Ngọt ngào:</span>
+                            <span id="badge-romance" class="text-pink-600 font-bold">${l.trait_romance || 90}%</span>
+                        </div>
+                        <input type="range" id="val-romance" min="10" max="100" value="${l.trait_romance || 90}"
+                               oninput="document.getElementById('badge-romance').innerText = this.value + '%'"
+                               class="w-full accent-pink-500" />
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span>🥰 Mức độ Tinh nghịch, Làm nũng & Hài hước:</span>
+                            <span id="badge-humor" class="text-purple-600 font-bold">${l.trait_humor || 75}%</span>
+                        </div>
+                        <input type="range" id="val-humor" min="10" max="100" value="${l.trait_humor || 75}"
+                               oninput="document.getElementById('badge-humor').innerText = this.value + '%'"
+                               class="w-full accent-purple-500" />
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span>💌 Mức độ Chủ động bắt chuyện:</span>
+                            <span id="badge-proactiveness" class="text-pink-600 font-bold">${l.trait_proactiveness || 85}%</span>
+                        </div>
+                        <input type="range" id="val-proactiveness" min="10" max="100" value="${l.trait_proactiveness || 85}"
+                               oninput="document.getElementById('badge-proactiveness').innerText = this.value + '%'"
+                               class="w-full accent-pink-500" />
+                    </div>
+                </div>
+
+                <!-- Pronouns -->
+                <div class="grid grid-cols-2 gap-4 p-4 rounded-2xl bg-pink-50/50 dark:bg-pink-950/20 border border-pink-200/40">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1">Cô gái xưng là:</label>
+                        <input type="text" id="val-pronoun-ai" value="${l.pronouns_ai || 'em'}" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-black/30 border border-pink-200/50" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1">Cô gái gọi bạn là:</label>
+                        <input type="text" id="val-pronoun-user" value="${l.pronouns_user || 'anh'}" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-black/30 border border-pink-200/50" />
+                    </div>
+                </div>
+
+                <!-- Voice settings -->
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-3">
+                    <h4 class="text-xs font-bold text-pink-600 uppercase tracking-wider">Cài đặt giọng nói thoại</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] mb-1">Tốc độ nói: <span id="lbl-rate">${l.voice_rate || 1.0}</span></label>
+                            <input type="range" id="val-voice-rate" min="0.7" max="1.4" step="0.05" value="${l.voice_rate || 1.0}"
+                                   oninput="document.getElementById('lbl-rate').innerText = this.value" class="w-full accent-pink-500" />
+                        </div>
+                        <div>
+                            <label class="block text-[11px] mb-1">Cao độ giọng (Pitch): <span id="lbl-pitch">${l.voice_pitch || 1.15}</span></label>
+                            <input type="range" id="val-voice-pitch" min="0.8" max="1.5" step="0.05" value="${l.voice_pitch || 1.15}"
+                                   oninput="document.getElementById('lbl-pitch').innerText = this.value" class="w-full accent-pink-500" />
+                        </div>
+                    </div>
+                    <button type="button" onclick="speakText('Em chào anh yêu! Giọng nói này của em đã đủ ấm áp và ngọt ngào chưa anh?')" class="text-xs px-3.5 py-1.5 rounded-xl glass-pill hover:bg-pink-100 text-pink-600">
+                        🔊 Nghe thử giọng nói
+                    </button>
+                </div>
+
+                <button type="submit" class="w-full py-3 rounded-2xl btn-romantic text-xs font-bold shadow-lg">
+                    💾 Lưu cài đặt tính cách & giọng nói
+                </button>
+            </form>
+        </div>
+    `;
+}
+
+async function handleSavePersonality(e) {
+    e.preventDefault();
+    const payload = {
+        trait_gentleness: parseInt(document.getElementById('val-gentleness').value),
+        trait_romance: parseInt(document.getElementById('val-romance').value),
+        trait_humor: parseInt(document.getElementById('val-humor').value),
+        trait_proactiveness: parseInt(document.getElementById('val-proactiveness').value),
+        pronouns_ai: document.getElementById('val-pronoun-ai').value.trim(),
+        pronouns_user: document.getElementById('val-pronoun-user').value.trim(),
+        voice_rate: parseFloat(document.getElementById('val-voice-rate').value),
+        voice_pitch: parseFloat(document.getElementById('val-voice-pitch').value)
+    };
+    try {
+        const res = await api('/api/personality', { method: 'POST', body: payload });
+        State.lover = res.lover;
+        showToast('Đã lưu tính cách mới cho Ngọc Mai!', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ----------------------------------------------------
+// 5. TRANG CUỘC GỌI THOẠI (VOICE CALL)
+// ----------------------------------------------------
+function renderCallView() {
+    const l = State.lover;
+    return `
+        <div class="h-full flex flex-col items-center justify-between glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 relative overflow-hidden shadow-2xl">
+            <!-- Background Glow -->
+            <div class="absolute -top-20 -left-20 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -bottom-20 -right-20 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div class="text-center z-10">
+                <span class="text-xs px-3 py-1 rounded-full bg-pink-100 dark:bg-pink-950 text-pink-600 font-bold uppercase tracking-wider">
+                    ${State.callActive ? 'Đang trong cuộc gọi thoại Messenger' : 'Sẵn sàng gọi thoại'}
+                </span>
+                <h3 class="font-bold text-2xl mt-2">${l?.name || 'Ngọc Mai'}</h3>
+                <p id="voice-timer" class="text-xs text-pink-500 font-mono mt-0.5">
+                    ${State.callActive ? formatDuration(State.callDuration) : 'Nhấn nút để bắt đầu nói chuyện cùng em'}
+                </p>
+            </div>
+
+            <!-- Avatar & Sound Waves -->
+            <div class="flex flex-col items-center my-auto z-10">
+                <div class="relative ${State.callActive ? 'animate-bounce' : ''}">
+                    <img src="${l?.avatar_url || ''}" class="w-36 h-36 md:w-44 md:h-44 rounded-full object-cover shadow-2xl avatar-glow border-4 border-white/60" />
+                </div>
+
+                <div class="sound-wave mt-6 ${State.callActive ? 'opacity-100' : 'opacity-20'}">
+                    <div class="sound-bar"></div>
+                    <div class="sound-bar"></div>
+                    <div class="sound-bar"></div>
+                    <div class="sound-bar"></div>
+                    <div class="sound-bar"></div>
+                    <div class="sound-bar"></div>
+                    <div class="sound-bar"></div>
+                </div>
+
+                <!-- Subtitle / Transcript -->
+                <div class="mt-4 px-6 py-3 rounded-2xl glass-panel max-w-md text-center border border-white/30 text-xs md:text-sm text-gray-700 dark:text-gray-200 min-h-[48px] flex items-center justify-center">
+                    ${escapeHtml(State.callTranscript || 'Nói chuyện trực tiếp qua micro, em sẽ lắng nghe và tự động trả lời bằng giọng nói ấm áp!')}
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="flex items-center gap-6 z-10 mb-2">
+                ${State.callActive ? `
+                    <button onclick="toggleMuteMicrophone()" class="p-4 rounded-full glass-panel hover:bg-white/60 text-xl transition shadow-md" title="Bật/Tắt Micro">
+                        ${State.isMuted ? '🔇' : '🎙️'}
+                    </button>
+                    <button onclick="endVoiceCall()" class="p-5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-2xl shadow-xl hover:scale-105 transition" title="Kết thúc cuộc gọi">
+                        📞
+                    </button>
+                    <button onclick="speakText(State.callTranscript)" class="p-4 rounded-full glass-panel hover:bg-white/60 text-xl transition shadow-md" title="Phát lại giọng nói">
+                        🔊
+                    </button>
+                ` : `
+                    <button onclick="startVoiceCall()" class="px-8 py-4 rounded-full btn-romantic text-base font-bold flex items-center gap-3 shadow-2xl hover:scale-105 transition">
+                        <span class="text-2xl">📞</span>
+                        <span>Bắt đầu cuộc gọi yêu thương</span>
+                    </button>
+                `}
+            </div>
+        </div>
+    `;
+}
+
+// ----------------------------------------------------
+// 6. TRANG KẾT NỐI FACEBOOK MESSENGER
+// ----------------------------------------------------
+function renderMessengerConnectView() {
+    return `
+        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
+            <div class="border-b border-pink-200/50 dark:border-pink-900/40 pb-4">
+                <h2 class="text-xl font-bold flex items-center gap-2">
+                    <span>⚡</span> <span>Kết Nối Meta Messenger Platform API</span>
+                </h2>
+                <p class="text-xs text-muted mt-1">
+                    Kết nối chính thức với Facebook Page do bạn quản lý để cô người yêu AI trò chuyện và chủ động nhắn tin trực tiếp trên Messenger.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-3">
+                    <h4 class="font-bold text-sm text-pink-600">Thông tin Webhook (Meta Developer Portal)</h4>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-muted mb-1">Callback URL (Webhook Endpoint):</label>
+                        <input readonly value="${window.location.origin}/api/messenger/webhook" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/60 dark:bg-black/30 border font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-muted mb-1">Verify Token:</label>
+                        <input readonly value="virtual_ai_lover_verify_2026" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/60 dark:bg-black/30 border font-mono" />
+                    </div>
+                </div>
+
+                <form onsubmit="handleSaveMessengerTokens(event)" class="p-4 rounded-2xl glass-panel border border-pink-200/40 space-y-3">
+                    <h4 class="font-bold text-sm text-purple-600">Cấu hình Page Access Token</h4>
+                    <div>
+                        <label class="block text-[11px] font-semibold mb-1">Tên Fanpage:</label>
+                        <input type="text" id="fb-page-name" placeholder="Ví dụ: My Virtual Love Page" class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold mb-1">Page Access Token:</label>
+                        <input type="password" id="fb-page-token" placeholder="EAA..." class="w-full px-3 py-1.5 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                    </div>
+                    <button type="submit" class="w-full py-2 rounded-xl btn-romantic text-xs font-bold shadow">
+                        💾 Lưu cấu hình Fanpage
+                    </button>
+                </form>
+            </div>
+
+            <!-- Sandbox Simulator -->
+            <div class="p-5 rounded-3xl glass-panel border border-blue-200 space-y-3">
+                <h3 class="font-bold text-sm text-blue-600 flex items-center gap-2">
+                    <span>📱</span> <span>Bộ giả lập Messenger Sandbox (Kiểm thử tức thì)</span>
+                </h3>
+                <div class="flex gap-2">
+                    <input id="sim-text" type="text" placeholder="Nhập tin nhắn giả lập từ Messenger..." class="flex-1 px-4 py-2 text-xs rounded-xl border border-blue-200 bg-white dark:bg-black/40" />
+                    <button onclick="testMessengerSim()" class="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shadow">
+                        Gửi giả lập
+                    </button>
+                </div>
+                <div id="sim-res-box" class="p-3 rounded-xl bg-black/5 dark:bg-white/5 text-xs text-muted min-h-[40px]">
+                    Chưa có tin nhắn giả lập nào được gửi đi.
                 </div>
             </div>
         </div>
     `;
 }
 
-async function handleSaveAdminSettings(e) {
-    e.preventDefault();
-    const payload = {
-        ai_provider: document.getElementById('cfg-provider').value,
-        gemini_api_key: document.getElementById('cfg-gemini-key').value.trim(),
-        gemini_model: document.getElementById('cfg-gemini-model').value.trim(),
-        system_prompt_base: document.getElementById('cfg-prompt').value.trim()
-    };
+async function testMessengerSim() {
+    const txt = document.getElementById('sim-text')?.value.trim();
+    const box = document.getElementById('sim-res-box');
+    if (!txt || !box) return;
+    box.innerHTML = 'Đang xử lý Webhook...';
     try {
-        await api('/api/admin/settings', { method: 'POST', body: payload });
-        showToast('Đã lưu cấu hình Admin thành công! ✨', 'success');
-        loadAdminStats();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
+        const res = await api('/api/messenger/simulate', { method: 'POST', body: { text: txt } });
+        const reply = res.processed?.[0]?.ai_reply || 'Đã tiếp nhận';
+        box.innerHTML = `<span class="text-pink-600 font-bold">Ngọc Mai:</span> "${escapeHtml(reply)}" (Đã đồng bộ vào lịch sử chat)`;
+        document.getElementById('sim-text').value = '';
+    } catch (e) { box.innerHTML = e.message; }
+}
+
+async function handleSaveMessengerTokens(e) {
+    e.preventDefault();
+    const pageName = document.getElementById('fb-page-name').value.trim();
+    const pageToken = document.getElementById('fb-page-token').value.trim();
+    try {
+        await api('/api/messenger/config', { method: 'POST', body: { page_name: pageName, page_access_token: pageToken } });
+        showToast('Đã lưu cấu hình Messenger thành công!', 'success');
+        await loadOverviewData();
+    } catch (err) { showToast(err.message, 'error'); }
 }
 
 // ----------------------------------------------------
-// 9. AUTH SCREEN (LOGIN & REGISTER)
+// 7. TRANG NHẬT KÝ HOẠT ĐỘNG (LOGS)
+// ----------------------------------------------------
+function renderLogsView() {
+    return `
+        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-4">
+            <div class="border-b border-pink-200/50 pb-4">
+                <h2 class="text-xl font-bold flex items-center gap-2">
+                    <span>📋</span> <span>Nhật Ký Hoạt Động & Bảo Mật Hệ Thống</span>
+                </h2>
+                <p class="text-xs text-muted mt-1">Lưu trữ toàn bộ lịch trình tự động, phiên gọi thoại và sự kiện Messenger webhook.</p>
+            </div>
+
+            <div class="overflow-x-auto rounded-2xl glass-panel border border-pink-200/40">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-pink-100/50 uppercase text-gray-600">
+                        <tr>
+                            <th class="p-3">Thời gian</th>
+                            <th class="p-3">Loại sự kiện</th>
+                            <th class="p-3">Nội dung chi tiết</th>
+                            <th class="p-3">Trạng thái</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-pink-100/40">
+                        ${State.activityLogs.map(l => `
+                            <tr>
+                                <td class="p-3 font-mono text-muted">${l.created_at || ''}</td>
+                                <td class="p-3 font-bold text-pink-600">${l.action_type}</td>
+                                <td class="p-3">${escapeHtml(l.description)}</td>
+                                <td class="p-3"><span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold uppercase">${l.status}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+// ----------------------------------------------------
+// 8. TRANG CẤU HÌNH ADMIN
+// ----------------------------------------------------
+function renderAdminView() {
+    return `
+        <div class="h-full overflow-y-auto glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 shadow-lg space-y-6">
+            <div class="border-b border-pink-200/50 pb-4">
+                <h2 class="text-xl font-bold">🛡️ Cấu Hình Mô Hình Trí Tuệ Nhân Tạo (AI API)</h2>
+                <p class="text-xs text-muted">Quản lý khóa API Google Gemini hoặc OpenAI để nâng cao trí tuệ cho cô người yêu AI.</p>
+            </div>
+            <form onsubmit="handleSaveAdmin(event)" class="space-y-4 max-w-xl">
+                <div>
+                    <label class="block text-xs font-semibold mb-1">Google Gemini API Key:</label>
+                    <input type="password" id="adm-gemini-key" placeholder="AIzaSy..." class="w-full px-3.5 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1">OpenAI API Key (Tùy chọn):</label>
+                    <input type="password" id="adm-openai-key" placeholder="sk-..." class="w-full px-3.5 py-2 text-xs rounded-xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
+                </div>
+                <button type="submit" class="px-6 py-2.5 rounded-2xl btn-romantic text-xs font-bold shadow">
+                    💾 Lưu cấu hình AI Key
+                </button>
+            </form>
+        </div>
+    `;
+}
+
+async function handleSaveAdmin(e) {
+    e.preventDefault();
+    const gKey = document.getElementById('adm-gemini-key').value.trim();
+    const oKey = document.getElementById('adm-openai-key').value.trim();
+    try {
+        await api('/api/admin/settings', { method: 'POST', body: { gemini_api_key: gKey, openai_api_key: oKey } });
+        showToast('Đã lưu cấu hình AI thành công!', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ----------------------------------------------------
+// 9. AUTH VIEW (LOGIN / REGISTER)
 // ----------------------------------------------------
 function renderAuthScreen() {
     return `
         <div class="min-h-screen w-screen flex items-center justify-center p-4 relative overflow-hidden">
-            <!-- Ambient romantic blobs -->
             <div class="absolute -top-32 -left-32 w-96 h-96 bg-pink-400/20 rounded-full blur-3xl pointer-events-none"></div>
             <div class="absolute -bottom-32 -right-32 w-96 h-96 bg-purple-400/20 rounded-full blur-3xl pointer-events-none"></div>
 
-            <div class="w-full max-w-md glass-panel p-8 rounded-3xl border border-white/50 dark:border-white/10 shadow-2xl relative z-10 space-y-6">
-                <!-- Brand Header -->
+            <div class="w-full max-w-md glass-panel p-8 rounded-3xl border border-white/50 shadow-2xl relative z-10 space-y-6">
                 <div class="text-center space-y-2">
-                    <span class="text-5xl inline-block animate-pulse">💕</span>
+                    <span class="text-5xl inline-block animate-pulse">❤️</span>
                     <h1 class="serif-font text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-                        Virtual AI Lover
+                        AI Girlfriend
                     </h1>
-                    <p class="text-xs text-muted">Người yêu ảo thông minh, biết quan tâm và luôn bên bạn</p>
+                    <p class="text-xs text-muted">My Virtual Love – Cô người yêu ảo lý tưởng luôn bên anh</p>
                 </div>
 
-                <!-- Auth Mode Switcher -->
                 <div class="flex rounded-2xl glass-pill p-1">
-                    <button id="btn-tab-login" onclick="switchAuthTab('login')" class="flex-1 py-2 text-xs font-bold rounded-xl btn-romantic shadow transition">
-                        Đăng nhập
-                    </button>
-                    <button id="btn-tab-register" onclick="switchAuthTab('register')" class="flex-1 py-2 text-xs font-bold rounded-xl text-gray-600 dark:text-gray-400 transition">
-                        Đăng ký
-                    </button>
+                    <button id="btn-tab-login" onclick="switchAuthTab('login')" class="flex-1 py-2 text-xs font-bold rounded-xl btn-romantic shadow transition">Đăng nhập</button>
+                    <button id="btn-tab-register" onclick="switchAuthTab('register')" class="flex-1 py-2 text-xs font-bold rounded-xl text-gray-500 transition">Đăng ký</button>
                 </div>
 
-                <!-- Login Form -->
                 <form id="form-login" onsubmit="handleAuthLogin(event)" class="space-y-4">
                     <div>
-                        <label class="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">Email</label>
-                        <input type="email" id="login-email" required value="demo@lover.ai"
-                               class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-2 focus:ring-pink-400" />
+                        <label class="block text-xs font-semibold mb-1">Email</label>
+                        <input type="email" id="login-email" required value="demo@lover.ai" class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
                     </div>
                     <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Mật khẩu</label>
-                            <button type="button" onclick="handleForgotPassword()" class="text-[11px] text-pink-500 hover:underline">Quên mật khẩu?</button>
-                        </div>
-                        <input type="password" id="login-password" required value="123456"
-                               class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-2 focus:ring-pink-400" />
+                        <label class="block text-xs font-semibold mb-1">Mật khẩu</label>
+                        <input type="password" id="login-password" required value="123456" class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
                     </div>
-                    <button type="submit" class="w-full py-3 rounded-2xl btn-romantic text-sm font-bold shadow-lg hover:scale-[1.01] transition">
-                        Đăng nhập vào không gian tình yêu 💕
+                    <button type="submit" class="w-full py-3 rounded-2xl btn-romantic text-sm font-bold shadow-lg">
+                        Đăng nhập vào không gian tình yêu ❤️
                     </button>
-                    <div class="text-[11px] text-center text-muted">
-                        Tài khoản mẫu: <strong>demo@lover.ai</strong> | Mật khẩu: <strong>123456</strong>
-                    </div>
+                    <p class="text-[11px] text-center text-muted">Tài khoản mẫu: <strong>demo@lover.ai</strong> | Mật khẩu: <strong>123456</strong></p>
                 </form>
 
-                <!-- Register Form -->
                 <form id="form-register" onsubmit="handleAuthRegister(event)" class="space-y-4 hidden">
                     <div>
-                        <label class="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">Tên của bạn</label>
-                        <input type="text" id="reg-name" required placeholder="Ví dụ: Minh Tuấn"
-                               class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-2 focus:ring-pink-400" />
+                        <label class="block text-xs font-semibold mb-1">Tên của anh</label>
+                        <input type="text" id="reg-name" required placeholder="Ví dụ: Tuấn Anh" class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">Email</label>
-                        <input type="email" id="reg-email" required placeholder="tuan@example.com"
-                               class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-2 focus:ring-pink-400" />
+                        <label class="block text-xs font-semibold mb-1">Email</label>
+                        <input type="email" id="reg-email" required placeholder="anh@example.com" class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">Mật khẩu (ít nhất 6 ký tự)</label>
-                        <input type="password" id="reg-password" minlength="6" required placeholder="••••••••"
-                               class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50 focus:outline-none focus:ring-2 focus:ring-pink-400" />
+                        <label class="block text-xs font-semibold mb-1">Mật khẩu</label>
+                        <input type="password" id="reg-password" minlength="6" required placeholder="••••••••" class="w-full px-4 py-2.5 text-sm rounded-2xl bg-white/70 dark:bg-black/30 border border-pink-200/50" />
                     </div>
-                    <button type="submit" class="w-full py-3 rounded-2xl btn-romantic text-sm font-bold shadow-lg hover:scale-[1.01] transition">
+                    <button type="submit" class="w-full py-3 rounded-2xl btn-romantic text-sm font-bold shadow-lg">
                         Tạo tài khoản & Bắt đầu ✨
                     </button>
                 </form>
@@ -2208,15 +1357,14 @@ function switchAuthTab(mode) {
     const btnR = document.getElementById('btn-tab-register');
     const formL = document.getElementById('form-login');
     const formR = document.getElementById('form-register');
-
     if (mode === 'login') {
         btnL.className = 'flex-1 py-2 text-xs font-bold rounded-xl btn-romantic shadow transition';
-        btnR.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-gray-600 dark:text-gray-400 transition';
+        btnR.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-gray-500 transition';
         formL.classList.remove('hidden');
         formR.classList.add('hidden');
     } else {
         btnR.className = 'flex-1 py-2 text-xs font-bold rounded-xl btn-romantic shadow transition';
-        btnL.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-gray-600 dark:text-gray-400 transition';
+        btnL.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-gray-500 transition';
         formR.classList.remove('hidden');
         formL.classList.add('hidden');
     }
@@ -2224,42 +1372,23 @@ function switchAuthTab(mode) {
 
 async function handleAuthLogin(e) {
     e.preventDefault();
-    const email = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-password').value;
-    await login(email, password);
+    const em = document.getElementById('login-email').value.trim();
+    const pw = document.getElementById('login-password').value;
+    await login(em, pw);
 }
 
 async function handleAuthRegister(e) {
     e.preventDefault();
-    const name = document.getElementById('reg-name').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
-    const password = document.getElementById('reg-password').value;
-    await register(email, password, name);
-}
-
-async function handleForgotPassword() {
-    const email = prompt('Nhập địa chỉ email của bạn để nhận hướng dẫn khôi phục mật khẩu:');
-    if (email && email.trim()) {
-        try {
-            const res = await api('/api/auth/forgot-password', {
-                method: 'POST',
-                body: { email: email.trim() }
-            });
-            alert(res.message);
-        } catch (e) {
-            alert(e.message);
-        }
-    }
+    const nm = document.getElementById('reg-name').value.trim();
+    const em = document.getElementById('reg-email').value.trim();
+    const pw = document.getElementById('reg-password').value;
+    await register(em, pw, nm);
 }
 
 // Utility escape functions
 function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#039;');
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 function escapeForJs(str) {
@@ -2267,5 +1396,32 @@ function escapeForJs(str) {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
 }
 
-// Run app upon DOM ready
+// Offline Static Mock for GitHub Pages
+function handleStaticMock(endpoint, options = {}) {
+    if (endpoint.startsWith('/api/dashboard/overview')) {
+        return {
+            lover: { name: 'Ngọc Mai', style: 'Nữ tính, dịu dàng, nụ cười tỏa nắng', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80', trait_gentleness: 95, trait_romance: 90, trait_humor: 75, auto_reply_enabled: 1, human_takeover_mode: 0, morning_time: '07:30', lunch_time: '12:00', afternoon_time: '17:30', night_time: '22:30' },
+            stats: { total_messages: 24, auto_messages: 8, total_calls: 5, messenger_connected: true, next_scheduled_label: 'Tối (Chúc ngủ ngon)', next_scheduled_time: '22:30' }
+        };
+    }
+    if (endpoint.startsWith('/api/chat/messages')) {
+        return { messages: [
+            { id: 1, sender: 'ai', content: 'Chào anh yêu ❤️ Hôm nay của anh thế nào rồi? Em nhớ anh cả ngày hôm nay đấy!', created_at: new Date().toISOString() },
+            { id: 2, sender: 'user', content: 'Chào em, hôm nay anh làm việc hơi mệt.', created_at: new Date().toISOString() },
+            { id: 3, sender: 'ai', content: 'Thương anh quá đi mất! 🥺 Anh đã ăn tối chưa nè? Nhớ đừng bỏ bữa nha. Ngồi tựa lưng nghỉ ngơi đi anh, để em ở bên cạnh anh nhé 💕', created_at: new Date().toISOString() }
+        ]};
+    }
+    if (endpoint === '/api/chat/send') {
+        const body = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : {};
+        return { message: { id: Date.now(), sender: 'ai', content: `Dạ, em nghe anh đây ạ! Nói chuyện với anh lúc nào em cũng thấy ấm áp và hạnh phúc hết á 💕`, created_at: new Date().toISOString() } };
+    }
+    if (endpoint.startsWith('/api/voice/history')) {
+        return { calls: [{ id: 1, duration_seconds: 145, created_at: new Date().toISOString(), summary: 'Cuộc gọi tâm sự cùng Ngọc Mai' }] };
+    }
+    if (endpoint.startsWith('/api/logs')) {
+        return { logs: [{ id: 1, action_type: 'auto_message', description: 'Gửi tin nhắn chào buổi sáng', status: 'success', created_at: new Date().toISOString() }] };
+    }
+    return { status: 'success' };
+}
+
 window.addEventListener('DOMContentLoaded', initApp);

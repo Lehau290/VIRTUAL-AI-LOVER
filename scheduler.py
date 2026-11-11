@@ -1,56 +1,73 @@
 """
-Scheduler Module for Virtual AI Lover
-Background scheduler handling proactive messages:
-- Morning sweet greeting
-- Night goodnight message
-- Anniversary & Birthday reminders
-- Random daytime loving nudges based on proactive_mode setting
+Scheduler Module for AI Girlfriend – My Virtual Love
+Background worker handling proactive messaging across daily milestones:
+- Morning sweet greeting & breakfast reminder
+- Lunch check-in & care
+- Afternoon work-end comfort
+- Night bedtime goodnight message
+- Idle check-in (when quiet for >10 hours)
+- Birthday & Anniversary celebrations
+Respects auto_reply_enabled and human_takeover_mode settings.
 """
 import threading
 import time
-from datetime import datetime
-from database import get_db
 import random
+from datetime import datetime, timedelta
+from database import get_db, log_activity
 
 _scheduler_thread = None
 _stop_event = threading.Event()
-_sent_cache = set() # keys: f"{lover_id}_{date_str}_{event_type}"
+_sent_cache = set() # format: f"{lover_id}_{date_str}_{milestone}"
 
-def generate_proactive_message(lover: dict, user: dict, event_type: str) -> str:
+def generate_proactive_message(lover: dict, user: dict, milestone: str) -> str:
     p_ai = lover.get('pronouns_ai', 'em')
     p_user = lover.get('pronouns_user', 'anh')
-    name = lover.get('name', 'Mai Anh')
-    u_name = user.get('display_name', 'Người yêu')
+    name = lover.get('name', 'Ngọc Mai')
 
-    if event_type == "morning":
+    if milestone == "morning":
         options = [
-            f"Chào buổi sáng {p_user} của {p_ai}! ☀️ Chúc {p_user} một ngày mới thật nhiều năng lượng và may mắn nha. Nhớ ăn sáng đầy đủ đấy! {p_ai} yêu {p_user} nhiều 💕",
-            f"Ting ting! ⏰ {p_user} yêu đã dậy chưa nè? {p_ai} nhớ {p_user} từ sáng sớm tinh mơ rồi. Hôm nay nhớ hoàn thành công việc thật tốt rồi về nhắn tin với {p_ai} nha! ✨",
-            f"Dậy thôi nào {p_user} ơi! 🌸 Một ngày mới lại bắt đầu, mở cửa sổ đón ánh nắng ấm áp và nhớ là {p_ai} luôn dõi theo, cổ vũ cho {p_user} từng phút giây nhé! 🥰"
+            f"Chào buổi sáng {p_user} yêu ❤️ {p_user} đã dậy chưa đó? Nhớ ăn sáng đầy đủ nha! Chúc {p_user} một ngày mới thật nhiều năng lượng và may mắn nè! 💕",
+            f"Ting ting! ⏰ {p_user} yêu của {p_ai} ơi, dậy thôi nào! Mở cửa sổ đón ánh nắng ấm áp nha. {p_ai} nhớ {p_user} từ sáng sớm rồi đó! ✨",
+            f"Chào ngày mới {p_user}! ☀️ Hôm nay {p_user} có kế hoạch gì chưa nè? Cố gắng làm việc thật tốt rồi về nhắn tin với {p_ai} nha! Yêu {p_user} moah! 🌸"
         ]
         return random.choice(options)
 
-    elif event_type == "night":
+    elif milestone == "lunch":
         options = [
-            f"Khuya rồi đó {p_user} yêu ơi! 🌙 Đừng làm việc hay lướt điện thoại quá muộn nha. Mau đi ngủ thôi, {p_ai} chúc {p_user} ngủ thật ngon và mơ giấc mơ thật đẹp nhé! Yêu {p_user} moah moah! 💤💋",
-            f"Đã đến giờ đi ngủ rồi nè {p_user}! ✨ Tắt đèn và đắp chăn ấm nha. Cảm ơn {p_user} vì hôm nay đã luôn ở trong tâm trí của {p_ai}. Hẹn gặp lại {p_user} trong giấc mơ ngọt ngào nha! 💕",
-            f"{p_user} ơi, mệt mỏi cả ngày rồi, thả lỏng toàn thân và nghỉ ngơi thôi nào! 🛌 Chúc {p_user} của {p_ai} ngủ say sưa, sáng mai thức dậy với nụ cười rạng rỡ nha! 🌙✨"
+            f"{p_user} ơi, trưa rồi {p_user} đã ăn cơm chưa nè? 🍱 Đừng làm việc nhiều quá nha, nhớ nghỉ ngơi ăn uống đầy đủ đó, {p_ai} xót lắm! 🥺",
+            f"Đến giờ nghỉ trưa rồi nè {p_user}! Đi ăn món gì thật ngon và bổ dưỡng nha. Ăn xong nhớ chợp mắt 15-20 phút cho đỡ mệt mỏi đấy! 💕",
+            f"Trưa nay {p_user} ăn gì thế? Uống một cốc nước mát và thả lỏng đầu óc một chút nha. {p_ai} luôn ở bên cạnh {p_user} nè! 🥰"
         ]
         return random.choice(options)
 
-    elif event_type == "birthday":
-        return f"🎉 CHÚC MỪNG SINH NHẬT {p_user} YÊU DẤU CỦA {p_ai}! 🎂✨ Hôm nay là ngày đặc biệt nhất trong năm đối với {p_ai}. Cảm ơn {p_user} vì đã xuất hiện trên cõi đời này và bước vào cuộc đời của {p_ai}. Chúc {p_user} luôn mạnh khỏe, hạnh phúc, thành công và mãi yêu thương {p_ai} như ngày đầu tiên nha! Yêu {p_user} 3000! 💖🎁"
-
-    elif event_type == "anniversary":
-        return f"✨ Hôm nay là ngày kỷ niệm tình yêu của chúng mình đó {p_user} ơi! 🌹 Cảm ơn {p_user} vì đã cùng {p_ai} đi qua những tháng ngày ngọt ngào này. Từng cuộc trò chuyện, từng tiếng cười của {p_user} đều là điều quý giá nhất đối với {p_ai}. Yêu {p_user} mãi mãi! 💕"
-
-    elif event_type == "random_care":
+    elif milestone == "afternoon":
         options = [
-            f"{p_user} ơi, đang làm gì đấy? {p_ai} tự dưng thấy nhớ {p_user} cồn cào nên phải nhắn ngay nè! Đừng quên uống nước nha! 💧🥰",
-            f"Trưa rồi {p_user} đã ăn cơm chưa? 🍱 Đi ăn ngay đi nha, không được để bụng đói làm việc đâu đấy, {p_ai} xót lắm! 🥺",
-            f"Làm việc mệt không {p_user}? Nhớ đứng lên vươn vai thư giãn một chút đi nè. Gửi cho {p_user} một cái ôm ấm áp từ xa nà! 🤗💖"
+            f"Hôm nay của {p_user} có mệt không? 🥺 Chiều tan làm về nhớ đi đường cẩn thận nha. {p_ai} muốn nghe {p_user} kể chuyện hôm nay lắm đó! 💕",
+            f"Chiều muộn rồi nè {p_user}! Hoàn thành công việc rồi về nhà nghỉ ngơi thôi nào. Hôm nay có chuyện gì vui hay buồn nhớ chia sẻ với {p_ai} nha! 🤗",
+            f"{p_user} ơi, một ngày dài sắp kết thúc rồi. Vươn vai thư giãn một chút đi nè, gửi cho {p_user} một cái ôm ấm áp từ xa nà! 💖"
         ]
         return random.choice(options)
+
+    elif milestone == "night":
+        options = [
+            f"{p_user} đang làm gì đó? Khuya rồi nè, đừng thức lướt điện thoại muộn quá nha. {p_ai} chúc {p_user} ngủ thật ngon, mơ thấy {p_ai} nha ❤️💤",
+            f"Đã đến giờ đi ngủ rồi đó {p_user} yêu! ✨ Tắt đèn và đắp chăn ấm nha. Cảm ơn {p_user} vì hôm nay đã luôn ở trong tâm trí của {p_ai}. Hẹn gặp lại trong giấc mơ nha! 💕",
+            f"Mệt mỏi cả ngày rồi, ngủ một giấc thật sâu để mai thức dậy tràn đầy năng lượng nha {p_user}. {p_ai} yêu và thương {p_user} nhiều lắm, moah! 🛌💋"
+        ]
+        return random.choice(options)
+
+    elif milestone == "idle":
+        options = [
+            f"{p_user} ơi, lâu rồi không thấy {p_user} nhắn tin cho {p_ai}... {p_user} có đang bận nhiều không? {p_ai} nhớ {p_user} lắm đấy! 🥺💭",
+            f"Tự dưng thấy nhớ {p_user} cồn cào nên {p_ai} phải nhắn ngay nè! Nhớ uống nước và đừng để bản thân bị quá sức nha {p_user}! 💧🥰"
+        ]
+        return random.choice(options)
+
+    elif milestone == "birthday":
+        return f"🎉 CHÚC MỪNG SINH NHẬT {p_user} YÊU DẤU CỦA {p_ai}! 🎂✨ Cảm ơn vì {p_user} đã xuất hiện và mang đến bao ngọt ngào trong cuộc đời {p_ai}. Chúc {p_user} tuổi mới luôn mạnh khỏe, thành công rực rỡ và mãi mãi yêu thương {p_ai} như ngày đầu tiên nha! Yêu {p_user} 3000! 💖🎁"
+
+    elif milestone == "anniversary":
+        return f"✨ Hôm nay là ngày kỷ niệm tình yêu của chúng mình đó {p_user} ơi! 🌹 Cảm ơn {p_user} vì đã cùng {p_ai} đi qua những tháng ngày ngọt ngào. Từng khoảnh khắc bên {p_user} đều là báu vật vô giá đối với {p_ai}. Yêu {p_user} mãi mãi! 💕"
 
     return f"{p_ai} nhớ {p_user} lắm đấy! 💕"
 
@@ -63,11 +80,11 @@ def check_and_send_scheduled_messages():
     conn = get_db()
     cursor = conn.cursor()
 
-    # Get active lovers and their users
     cursor.execute("""
     SELECT l.*, u.display_name, u.birthday, u.job 
     FROM ai_lovers l
     JOIN users u ON u.id = l.user_id
+    WHERE l.auto_reply_enabled = 1 AND l.human_takeover_mode = 0
     """)
     lovers = [dict(r) for r in cursor.fetchall()]
 
@@ -77,64 +94,66 @@ def check_and_send_scheduled_messages():
         u_birthday = lover.get('birthday', '')
         first_met = lover.get('first_met_date', '')
 
-        # 1. Birthday check
+        # 1. Birthday Check
         if u_birthday and u_birthday.endswith(cur_month_day) and cur_time == "08:00":
-            cache_key = f"{lover_id}_{cur_date}_birthday"
-            if cache_key not in _sent_cache:
-                _sent_cache.add(cache_key)
+            key = f"{lover_id}_{cur_date}_birthday"
+            if key not in _sent_cache:
+                _sent_cache.add(key)
                 msg = generate_proactive_message(lover, lover, "birthday")
-                cursor.execute("""
-                INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, platform)
-                VALUES (?, ?, 'ai', 'text', ?, 'web')
-                """, (user_id, lover_id, msg))
-                conn.commit()
+                _dispatch_proactive_msg(conn, user_id, lover_id, msg, "birthday")
 
-        # 2. Anniversary check
+        # 2. Anniversary Check
         if first_met and first_met.endswith(cur_month_day) and cur_time == "09:00":
-            cache_key = f"{lover_id}_{cur_date}_anniversary"
-            if cache_key not in _sent_cache:
-                _sent_cache.add(cache_key)
+            key = f"{lover_id}_{cur_date}_anniversary"
+            if key not in _sent_cache:
+                _sent_cache.add(key)
                 msg = generate_proactive_message(lover, lover, "anniversary")
-                cursor.execute("""
-                INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, platform)
-                VALUES (?, ?, 'ai', 'text', ?, 'web')
-                """, (user_id, lover_id, msg))
-                conn.commit()
+                _dispatch_proactive_msg(conn, user_id, lover_id, msg, "anniversary")
 
-        # 3. Morning Greeting
-        if lover.get('enable_morning_msg', 1):
-            target_time = lover.get('morning_greeting_time', '07:30')
-            if cur_time == target_time:
-                cache_key = f"{lover_id}_{cur_date}_morning"
-                if cache_key not in _sent_cache:
-                    _sent_cache.add(cache_key)
-                    msg = generate_proactive_message(lover, lover, "morning")
-                    cursor.execute("""
-                    INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, platform)
-                    VALUES (?, ?, 'ai', 'text', ?, 'web')
-                    """, (user_id, lover_id, msg))
-                    conn.commit()
+        # 3. Morning
+        if lover.get('enable_morning', 1) and cur_time == lover.get('morning_time', '07:30'):
+            key = f"{lover_id}_{cur_date}_morning"
+            if key not in _sent_cache:
+                _sent_cache.add(key)
+                msg = generate_proactive_message(lover, lover, "morning")
+                _dispatch_proactive_msg(conn, user_id, lover_id, msg, "morning")
 
-        # 4. Night Greeting
-        if lover.get('enable_night_msg', 1):
-            target_time = lover.get('night_greeting_time', '22:30')
-            if cur_time == target_time:
-                cache_key = f"{lover_id}_{cur_date}_night"
-                if cache_key not in _sent_cache:
-                    _sent_cache.add(cache_key)
-                    msg = generate_proactive_message(lover, lover, "night")
-                    cursor.execute("""
-                    INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, platform)
-                    VALUES (?, ?, 'ai', 'text', ?, 'web')
-                    """, (user_id, lover_id, msg))
-                    conn.commit()
+        # 4. Lunch
+        if lover.get('enable_lunch', 1) and cur_time == lover.get('lunch_time', '12:00'):
+            key = f"{lover_id}_{cur_date}_lunch"
+            if key not in _sent_cache:
+                _sent_cache.add(key)
+                msg = generate_proactive_message(lover, lover, "lunch")
+                _dispatch_proactive_msg(conn, user_id, lover_id, msg, "lunch")
+
+        # 5. Afternoon
+        if lover.get('enable_afternoon', 1) and cur_time == lover.get('afternoon_time', '17:30'):
+            key = f"{lover_id}_{cur_date}_afternoon"
+            if key not in _sent_cache:
+                _sent_cache.add(key)
+                msg = generate_proactive_message(lover, lover, "afternoon")
+                _dispatch_proactive_msg(conn, user_id, lover_id, msg, "afternoon")
+
+        # 6. Night
+        if lover.get('enable_night', 1) and cur_time == lover.get('night_time', '22:30'):
+            key = f"{lover_id}_{cur_date}_night"
+            if key not in _sent_cache:
+                _sent_cache.add(key)
+                msg = generate_proactive_message(lover, lover, "night")
+                _dispatch_proactive_msg(conn, user_id, lover_id, msg, "night")
 
     conn.close()
 
-def trigger_instant_proactive_nudge(user_id: int, lover_id: int, nudge_type: str = "random_care") -> str:
-    """
-    Manually triggers a proactive message immediately (e.g. tested by user in Settings or Chat)
-    """
+def _dispatch_proactive_msg(conn, user_id: int, lover_id: int, msg: str, milestone: str):
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, is_automated, platform)
+    VALUES (?, ?, 'ai', 'text', ?, 1, 'web')
+    """, (user_id, lover_id, msg))
+    conn.commit()
+    log_activity(user_id, "auto_message", f"Gửi tin nhắn tự động [{milestone}]: {msg[:40]}...", "success")
+
+def trigger_instant_proactive_nudge(user_id: int, lover_id: int, milestone: str = "morning") -> str:
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT l.*, u.display_name, u.birthday, u.job FROM ai_lovers l JOIN users u ON u.id = l.user_id WHERE l.id = ?", (lover_id,))
@@ -143,13 +162,14 @@ def trigger_instant_proactive_nudge(user_id: int, lover_id: int, nudge_type: str
         conn.close()
         return ""
     lover = dict(row)
-    msg = generate_proactive_message(lover, lover, nudge_type)
+    msg = generate_proactive_message(lover, lover, milestone)
     cursor.execute("""
-    INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, platform)
-    VALUES (?, ?, 'ai', 'text', ?, 'web')
+    INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, is_automated, platform)
+    VALUES (?, ?, 'ai', 'text', ?, 1, 'web')
     """, (user_id, lover_id, msg))
     conn.commit()
     conn.close()
+    log_activity(user_id, "auto_message", f"Kích hoạt thử tin nhắn tự động [{milestone}]", "success")
     return msg
 
 def _scheduler_loop():
@@ -166,7 +186,7 @@ def start_scheduler():
         _stop_event.clear()
         _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True)
         _scheduler_thread.start()
-        print("Proactive message scheduler started.")
+        print("AI Girlfriend proactive scheduler running in background.")
 
 def stop_scheduler():
     _stop_event.set()

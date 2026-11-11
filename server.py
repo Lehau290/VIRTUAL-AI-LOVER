@@ -1,8 +1,6 @@
 """
-Virtual AI Lover - Fullstack HTTP Server
-Implements REST API, static asset serving, SSE, voice call processing,
-Meta Messenger platform webhook, and admin management.
-Zero external dependencies, running on Python's built-in libraries.
+AI Girlfriend – My Virtual Love Server
+REST API, Static SPA Server, Web Speech Turn Processing, Meta Webhook, and Realtime Dashboard.
 """
 import http.server
 import socketserver
@@ -13,7 +11,7 @@ import mimetypes
 import uuid
 from datetime import datetime
 from database import (
-    init_db, get_db, hash_password, verify_password, DB_PATH
+    init_db, get_db, hash_password, verify_password, log_activity, DB_PATH
 )
 from ai_engine import (
     generate_ai_response, get_system_setting, update_lover_emotion
@@ -26,9 +24,9 @@ from scheduler import (
 )
 
 PORT = 3000
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(ROOT_DIR, "static")
 
-# Active sessions: token -> {user_id, email, role, created_at}
 SESSIONS = {}
 
 def get_current_user(headers: dict, query_params: dict):
@@ -43,7 +41,7 @@ def get_current_user(headers: dict, query_params: dict):
         user_id = SESSIONS[token]['user_id']
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, display_name, role, avatar_url, phone, birthday, job, bio FROM users WHERE id = ?", (user_id,))
+        cursor.execute("SELECT id, email, display_name, role, birthday, job, bio FROM users WHERE id = ?", (user_id,))
         row = cursor.fetchone()
         conn.close()
         if row:
@@ -52,7 +50,6 @@ def get_current_user(headers: dict, query_params: dict):
 
 class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
     def end_headers(self):
-        # Enable CORS for local testing and secure headers
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -85,29 +82,22 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        # Meta Messenger Webhook verification
+        # Meta Webhook Challenge verification
         if path == "/api/messenger/webhook":
             mode = query.get("hub.mode", [""])[0]
             token = query.get("hub.verify_token", [""])[0]
             challenge = query.get("hub.challenge", [""])[0]
             valid, response_text = verify_meta_webhook(mode, token, challenge)
-            if valid:
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/plain')
-                self.end_headers()
-                self.wfile.write(response_text.encode('utf-8'))
-            else:
-                self.send_response(403)
-                self.send_header('Content-Type', 'text/plain')
-                self.end_headers()
-                self.wfile.write(response_text.encode('utf-8'))
+            self.send_response(200 if valid else 403)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(response_text.encode('utf-8'))
             return
 
         # API Routes
         if path.startswith("/api/"):
             user = get_current_user(self.headers, query)
 
-            # Auth: Me
             if path == "/api/auth/me":
                 if not user:
                     return self.send_json({"error": "Unauthorized"}, status=401)
@@ -121,44 +111,83 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
                     "lover": dict(lover_row) if lover_row else None
                 })
 
-            # AI Lover profile
-            if path == "/api/lover":
+            # 1. Dashboard Overview
+            if path == "/api/dashboard/overview":
                 if not user:
                     return self.send_json({"error": "Unauthorized"}, status=401)
                 conn = get_db()
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM ai_lovers WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user['id'],))
-                lover_row = cursor.fetchone()
-                conn.close()
-                return self.send_json({"lover": dict(lover_row) if lover_row else None})
+                cursor.execute("SELECT * FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
+                lover = dict(cursor.fetchone() or {})
+                
+                cursor.execute("SELECT COUNT(*) as c FROM chat_messages WHERE user_id = ?", (user['id'],))
+                total_messages = cursor.fetchone()['c']
+                
+                cursor.execute("SELECT COUNT(*) as c FROM chat_messages WHERE user_id = ? AND is_automated = 1", (user['id'],))
+                auto_messages = cursor.fetchone()['c']
 
-            # Chat Messages
+                cursor.execute("SELECT COUNT(*) as c FROM voice_calls WHERE user_id = ?", (user['id'],))
+                total_calls = cursor.fetchone()['c']
+
+                cursor.execute("SELECT is_connected FROM messenger_integrations WHERE user_id = ?", (user['id'],))
+                m_row = cursor.fetchone()
+                messenger_connected = bool(m_row and m_row['is_connected'])
+
+                # Compute next scheduled message
+                now_str = datetime.now().strftime("%H:%M")
+                schedule_times = [
+                    ("Sáng (Chào ngày mới)", lover.get('morning_time', '07:30')),
+                    ("Trưa (Hỏi thăm ăn cơm)", lover.get('lunch_time', '12:00')),
+                    ("Chiều (Tan làm nghỉ ngơi)", lover.get('afternoon_time', '17:30')),
+                    ("Tối (Chúc ngủ ngon)", lover.get('night_time', '22:30'))
+                ]
+                next_msg = schedule_times[0]
+                for label, t in schedule_times:
+                    if t > now_str:
+                        next_msg = (label, t)
+                        break
+
+                conn.close()
+                return self.send_json({
+                    "lover": lover,
+                    "stats": {
+                        "total_messages": total_messages,
+                        "auto_messages": auto_messages,
+                        "total_calls": total_calls,
+                        "messenger_connected": messenger_connected,
+                        "next_scheduled_label": next_msg[0],
+                        "next_scheduled_time": next_msg[1]
+                    }
+                })
+
+            # 2. Chat messages with filter & search
             if path == "/api/chat/messages":
                 if not user:
                     return self.send_json({"error": "Unauthorized"}, status=401)
-                lover_id = query.get('lover_id', [None])[0]
+                sender_filter = query.get('sender', ['all'])[0]
                 search = query.get('search', [''])[0].strip()
-                limit = int(query.get('limit', [60])[0])
+                limit = int(query.get('limit', [80])[0])
 
                 conn = get_db()
                 cursor = conn.cursor()
+                sql = "SELECT * FROM chat_messages WHERE user_id = ?"
+                params = [user['id']]
+
+                if sender_filter in ['ai', 'user', 'human_admin']:
+                    sql += " AND sender = ?"
+                    params.append(sender_filter)
                 if search:
-                    cursor.execute("""
-                    SELECT * FROM chat_messages 
-                    WHERE user_id = ? AND content LIKE ?
-                    ORDER BY id DESC LIMIT ?
-                    """, (user['id'], f"%{search}%", limit))
-                else:
-                    cursor.execute("""
-                    SELECT * FROM chat_messages 
-                    WHERE user_id = ?
-                    ORDER BY id DESC LIMIT ?
-                    """, (user['id'], limit))
+                    sql += " AND content LIKE ?"
+                    params.append(f"%{search}%")
+
+                sql += " ORDER BY id DESC LIMIT ?"
+                params.append(limit)
+                cursor.execute(sql, params)
                 messages = [dict(r) for r in cursor.fetchall()]
                 conn.close()
                 return self.send_json({"messages": list(reversed(messages))})
 
-            # Memories
+            # 3. Memories
             if path == "/api/memories":
                 if not user:
                     return self.send_json({"error": "Unauthorized"}, status=401)
@@ -169,40 +198,20 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
                 conn.close()
                 return self.send_json({"memories": memories})
 
-            # Love Diaries
-            if path == "/api/diary":
-                if not user:
-                    return self.send_json({"error": "Unauthorized"}, status=401)
-                conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM love_diaries WHERE user_id = ? ORDER BY entry_date DESC, id DESC", (user['id'],))
-                diaries = [dict(r) for r in cursor.fetchall()]
-                conn.close()
-                return self.send_json({"diaries": diaries})
-
-            # Photo Albums
-            if path == "/api/album":
-                if not user:
-                    return self.send_json({"error": "Unauthorized"}, status=401)
-                conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM photo_albums WHERE user_id = ? ORDER BY id DESC", (user['id'],))
-                photos = [dict(r) for r in cursor.fetchall()]
-                conn.close()
-                return self.send_json({"photos": photos})
-
-            # Voice calls history
+            # 4. Voice Calls
             if path == "/api/voice/history":
                 if not user:
                     return self.send_json({"error": "Unauthorized"}, status=401)
                 conn = get_db()
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM voice_calls WHERE user_id = ? ORDER BY id DESC LIMIT 20", (user['id'],))
+                cursor.execute("SELECT * FROM voice_calls WHERE user_id = ? ORDER BY id DESC LIMIT 30", (user['id'],))
                 calls = [dict(r) for r in cursor.fetchall()]
+                cursor.execute("SELECT SUM(duration_seconds) as total_sec FROM voice_calls WHERE user_id = ?", (user['id'],))
+                tot = cursor.fetchone()['total_sec'] or 0
                 conn.close()
-                return self.send_json({"calls": calls})
+                return self.send_json({"calls": calls, "total_seconds": tot})
 
-            # Messenger status & configs
+            # 5. Messenger Status
             if path == "/api/messenger/status":
                 if not user:
                     return self.send_json({"error": "Unauthorized"}, status=401)
@@ -210,12 +219,27 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM messenger_integrations WHERE user_id = ?", (user['id'],))
                 m_row = cursor.fetchone()
+                cursor.execute("SELECT auto_reply_enabled, human_takeover_mode FROM ai_lovers WHERE user_id = ?", (user['id'],))
+                l_row = cursor.fetchone()
                 conn.close()
                 return self.send_json({
                     "integration": dict(m_row) if m_row else None,
-                    "webhook_url": f"http://localhost:{PORT}/api/messenger/webhook",
+                    "auto_reply_enabled": l_row['auto_reply_enabled'] if l_row else 1,
+                    "human_takeover_mode": l_row['human_takeover_mode'] if l_row else 0,
+                    "webhook_url": f"http://127.0.0.1:{PORT}/api/messenger/webhook",
                     "verify_token": get_system_setting("messenger_webhook_verify_token", "virtual_ai_lover_verify_2026")
                 })
+
+            # 6. Activity Logs
+            if path == "/api/logs":
+                if not user:
+                    return self.send_json({"error": "Unauthorized"}, status=401)
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM activity_logs WHERE user_id = ? ORDER BY id DESC LIMIT 50", (user['id'],))
+                logs = [dict(r) for r in cursor.fetchall()]
+                conn.close()
+                return self.send_json({"logs": logs})
 
             # Admin stats & settings
             if path == "/api/admin/stats":
@@ -233,22 +257,12 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
                 v_cnt = cursor.fetchone()['c']
                 cursor.execute("SELECT COUNT(*) as c FROM ai_memories")
                 mem_cnt = cursor.fetchone()['c']
-                cursor.execute("SELECT COUNT(*) as c FROM love_diaries")
-                d_cnt = cursor.fetchone()['c']
-
                 cursor.execute("SELECT id, email, display_name, role, created_at FROM users ORDER BY id DESC LIMIT 20")
-                user_list = [dict(r) for r in cursor.fetchall()]
+                users_list = [dict(r) for r in cursor.fetchall()]
                 conn.close()
                 return self.send_json({
-                    "stats": {
-                        "users": u_cnt,
-                        "lovers": l_cnt,
-                        "messages": m_cnt,
-                        "voice_calls": v_cnt,
-                        "memories": mem_cnt,
-                        "diaries": d_cnt
-                    },
-                    "users": user_list
+                    "stats": {"users": u_cnt, "lovers": l_cnt, "messages": m_cnt, "calls": v_cnt, "memories": mem_cnt},
+                    "users": users_list
                 })
 
             if path == "/api/admin/settings":
@@ -261,20 +275,17 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
                 conn.close()
                 return self.send_json({"settings": settings})
 
-            return self.send_json({"error": "API route not found"}, status=404)
+            return self.send_json({"error": "Route not found"}, status=404)
 
-        # Serve static frontend files
+        # Serve Frontend Assets
         if path == "/" or path == "":
             path = "/index.html"
         
         rel_path = path.lstrip("/")
-        full_path = os.path.join(STATIC_DIR, rel_path)
-
-        # Basic security check against directory traversal
-        if not os.path.abspath(full_path).startswith(STATIC_DIR):
-            self.send_response(403)
-            self.end_headers()
-            return
+        # Try ROOT_DIR first, then STATIC_DIR
+        candidate1 = os.path.join(ROOT_DIR, rel_path)
+        candidate2 = os.path.join(STATIC_DIR, rel_path)
+        full_path = candidate1 if os.path.exists(candidate1) and os.path.isfile(candidate1) else candidate2
 
         if os.path.exists(full_path) and os.path.isfile(full_path):
             mime_type, _ = mimetypes.guess_type(full_path)
@@ -287,10 +298,9 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(content)
         else:
-            # SPA Fallback to index.html
-            index_path = os.path.join(STATIC_DIR, "index.html")
-            if os.path.exists(index_path):
-                with open(index_path, "rb") as f:
+            fallback = os.path.join(ROOT_DIR, "index.html")
+            if os.path.exists(fallback):
+                with open(fallback, "rb") as f:
                     content = f.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -306,91 +316,55 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        # Meta Messenger incoming webhook POST
+        # Meta Webhook POST
         if path == "/api/messenger/webhook":
             content_len = int(self.headers.get('Content-Length', 0))
             raw_body = self.rfile.read(content_len)
-            sig_header = self.headers.get('X-Hub-Signature-256', '')
+            sig = self.headers.get('X-Hub-Signature-256', '')
             app_secret = get_system_setting("messenger_app_secret", "")
-            
-            if not verify_meta_signature(raw_body, sig_header, app_secret):
+            if not verify_meta_signature(raw_body, sig, app_secret):
                 return self.send_json({"error": "Invalid signature"}, status=403)
-            
             try:
                 event_data = json.loads(raw_body.decode('utf-8'))
-                result = handle_incoming_messenger_event(event_data, is_simulated=False)
-                return self.send_json(result)
+                res = handle_incoming_messenger_event(event_data, is_simulated=False)
+                return self.send_json(res)
             except Exception as e:
                 return self.send_json({"error": str(e)}, status=500)
 
-        # Register
+        # Auth
         if path == "/api/auth/register":
             body = self.read_json_body()
             email = body.get('email', '').strip().lower()
             password = body.get('password', '')
-            display_name = body.get('display_name', '').strip() or 'Người thương'
-
-            if not email or not password or len(password) < 6:
-                return self.send_json({"error": "Email và mật khẩu (tối thiểu 6 ký tự) là bắt buộc"}, status=400)
+            name = body.get('display_name', '').strip() or 'Người thương'
+            if not email or len(password) < 6:
+                return self.send_json({"error": "Vui lòng nhập email và mật khẩu tối thiểu 6 ký tự"}, status=400)
 
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
             if cursor.fetchone():
                 conn.close()
-                return self.send_json({"error": "Email đã được đăng ký trong hệ thống"}, status=400)
+                return self.send_json({"error": "Email đã tồn tại"}, status=400)
 
-            pwd_hash = hash_password(password)
+            p_hash = hash_password(password)
+            cursor.execute("INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)", (email, p_hash, name))
+            new_uid = cursor.lastrowid
             cursor.execute("""
-            INSERT INTO users (email, password_hash, display_name, role)
-            VALUES (?, ?, ?, 'user')
-            """, (email, pwd_hash, display_name))
-            new_user_id = cursor.lastrowid
-
-            # Create default lover for new user
-            first_met = datetime.now().strftime("%Y-%m-%d")
-            cursor.execute("""
-            INSERT INTO ai_lovers (
-                user_id, name, gender, age, avatar_url, style, personality,
-                pronouns_ai, pronouns_user, voice_style, hobbies, habits, dislikes, first_met_date
-            ) VALUES (
-                ?, 'Mai Anh', 'female', 21,
-                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
-                'Thanh lịch, dịu dàng',
-                'Dịu dàng, biết lắng nghe, đôi khi làm nũng và ghen tuông đáng yêu',
-                'em', 'anh', 'Nữ - Ngọt ngào nhẹ nhàng',
-                'Nghe nhạc, làm bánh, chụp ảnh, đi dạo lúc hoàng hôn',
-                'Thích chờ tin nhắn người yêu, hay nhắc anh uống nước',
-                'Người yêu thức khuya bỏ bữa, im lặng quá lâu',
-                ?
-            )
-            """, (new_user_id, first_met))
-            new_lover_id = cursor.lastrowid
-
-            # Seed initial greeting
-            cursor.execute("""
-            INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content)
-            VALUES (?, ?, 'ai', 'text', 'Chào anh yêu! ✨ Em là Mai Anh đây, từ hôm nay em sẽ là người yêu và luôn đồng hành bên anh mỗi ngày nhé! 💕')
-            """, (new_user_id, new_lover_id))
-
+            INSERT INTO ai_lovers (user_id, name, avatar_url, first_met_date)
+            VALUES (?, 'Ngọc Mai', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80', CURRENT_DATE)
+            """, (new_uid,))
             conn.commit()
             conn.close()
 
             token = str(uuid.uuid4())
-            SESSIONS[token] = {"user_id": new_user_id, "email": email, "role": "user", "created_at": datetime.now().isoformat()}
+            SESSIONS[token] = {"user_id": new_uid, "email": email, "role": "user"}
+            return self.send_json({"token": token, "user": {"id": new_uid, "email": email, "display_name": name, "role": "user"}})
 
-            return self.send_json({
-                "token": token,
-                "user": {"id": new_user_id, "email": email, "display_name": display_name, "role": "user"},
-                "message": "Đăng ký thành công!"
-            })
-
-        # Login
         if path == "/api/auth/login":
             body = self.read_json_body()
             email = body.get('email', '').strip().lower()
             password = body.get('password', '')
-
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
@@ -400,363 +374,221 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
                 return self.send_json({"error": "Sai email hoặc mật khẩu"}, status=400)
 
             token = str(uuid.uuid4())
-            SESSIONS[token] = {
-                "user_id": user_row['id'],
-                "email": user_row['email'],
-                "role": user_row['role'],
-                "created_at": datetime.now().isoformat()
-            }
-
-            cursor.execute("SELECT * FROM ai_lovers WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_row['id'],))
+            SESSIONS[token] = {"user_id": user_row['id'], "email": user_row['email'], "role": user_row['role']}
+            cursor.execute("SELECT * FROM ai_lovers WHERE user_id = ? LIMIT 1", (user_row['id'],))
             lover_row = cursor.fetchone()
             conn.close()
-
             return self.send_json({
                 "token": token,
-                "user": {
-                    "id": user_row['id'],
-                    "email": user_row['email'],
-                    "display_name": user_row['display_name'],
-                    "role": user_row['role'],
-                    "avatar_url": user_row['avatar_url'],
-                    "birthday": user_row['birthday'],
-                    "job": user_row['job'],
-                    "bio": user_row['bio']
-                },
+                "user": dict(user_row),
                 "lover": dict(lover_row) if lover_row else None
             })
 
-        # Forgot password
-        if path == "/api/auth/forgot-password":
-            body = self.read_json_body()
-            email = body.get('email', '').strip().lower()
-            return self.send_json({
-                "message": f"Yêu cầu đặt lại mật khẩu đã được xử lý cho email {email}. Trong môi trường demo, mật khẩu mặc định của tài khoản là '123456'."
-            })
-
-        # Authenticated APIs
         user = get_current_user(self.headers, query)
         if not user:
             return self.send_json({"error": "Unauthorized"}, status=401)
 
-        # Update or Create Lover
-        if path == "/api/lover":
-            body = self.read_json_body()
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ?", (user['id'],))
-            existing = cursor.fetchone()
-
-            name = body.get('name', 'Mai Anh')
-            gender = body.get('gender', 'female')
-            age = int(body.get('age', 21))
-            avatar_url = body.get('avatar_url', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80')
-            style = body.get('style', 'Thanh lịch, dịu dàng')
-            personality = body.get('personality', 'Dịu dàng, chu đáo')
-            p_ai = body.get('pronouns_ai', 'em')
-            p_user = body.get('pronouns_user', 'anh')
-            voice_style = body.get('voice_style', 'Nữ - Ngọt ngào nhẹ nhàng')
-            voice_rate = float(body.get('voice_rate', 1.0))
-            voice_pitch = float(body.get('voice_pitch', 1.1))
-            hobbies = body.get('hobbies', '')
-            habits = body.get('habits', '')
-            dislikes = body.get('dislikes', '')
-            first_met = body.get('first_met_date', datetime.now().strftime("%Y-%m-%d"))
-            proactive_mode = body.get('proactive_mode', 'medium')
-            morning_time = body.get('morning_greeting_time', '07:30')
-            night_time = body.get('night_greeting_time', '22:30')
-            enable_morning = 1 if body.get('enable_morning_msg', True) else 0
-            enable_night = 1 if body.get('enable_night_msg', True) else 0
-            enable_random = 1 if body.get('enable_random_care', True) else 0
-
-            if existing:
-                cursor.execute("""
-                UPDATE ai_lovers SET
-                    name = ?, gender = ?, age = ?, avatar_url = ?, style = ?,
-                    personality = ?, pronouns_ai = ?, pronouns_user = ?, voice_style = ?,
-                    voice_rate = ?, voice_pitch = ?, hobbies = ?, habits = ?, dislikes = ?,
-                    first_met_date = ?, proactive_mode = ?, morning_greeting_time = ?,
-                    night_greeting_time = ?, enable_morning_msg = ?, enable_night_msg = ?,
-                    enable_random_care = ?
-                WHERE id = ?
-                """, (
-                    name, gender, age, avatar_url, style,
-                    personality, p_ai, p_user, voice_style,
-                    voice_rate, voice_pitch, hobbies, habits, dislikes,
-                    first_met, proactive_mode, morning_time,
-                    night_time, enable_morning, enable_night,
-                    enable_random, existing['id']
-                ))
-                lover_id = existing['id']
-            else:
-                cursor.execute("""
-                INSERT INTO ai_lovers (
-                    user_id, name, gender, age, avatar_url, style,
-                    personality, pronouns_ai, pronouns_user, voice_style,
-                    voice_rate, voice_pitch, hobbies, habits, dislikes,
-                    first_met_date, proactive_mode, morning_greeting_time,
-                    night_greeting_time, enable_morning_msg, enable_night_msg,
-                    enable_random_care
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    user['id'], name, gender, age, avatar_url, style,
-                    personality, p_ai, p_user, voice_style,
-                    voice_rate, voice_pitch, hobbies, habits, dislikes,
-                    first_met, proactive_mode, morning_time,
-                    night_time, enable_morning, enable_night,
-                    enable_random
-                ))
-                lover_id = cursor.lastrowid
-
-            # Also update user profile info if provided
-            u_name = body.get('user_display_name')
-            u_bday = body.get('user_birthday')
-            u_job = body.get('user_job')
-            if u_name or u_bday or u_job:
-                cursor.execute("""
-                UPDATE users SET 
-                    display_name = COALESCE(?, display_name),
-                    birthday = COALESCE(?, birthday),
-                    job = COALESCE(?, job)
-                WHERE id = ?
-                """, (u_name, u_bday, u_job, user['id']))
-
-            conn.commit()
-            cursor.execute("SELECT * FROM ai_lovers WHERE id = ?", (lover_id,))
-            updated_lover = dict(cursor.fetchone())
-            conn.close()
-
-            return self.send_json({"lover": updated_lover, "message": "Đã lưu thông tin người yêu thành công!"})
-
-        # Send Chat Message
+        # Chat send
         if path == "/api/chat/send":
             body = self.read_json_body()
             lover_id = body.get('lover_id')
             content = body.get('content', '').strip()
-            message_type = body.get('message_type', 'text')
-            media_url = body.get('media_url', '')
+            sender = body.get('sender', 'user') # 'user' or 'human_admin' (takeover mode)
 
-            if not content and not media_url:
+            if not content:
                 return self.send_json({"error": "Nội dung tin nhắn không được để trống"}, status=400)
 
             conn = get_db()
             cursor = conn.cursor()
             if not lover_id:
                 cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
-                l_row = cursor.fetchone()
-                lover_id = l_row['id'] if l_row else None
-
-            if not lover_id:
-                conn.close()
-                return self.send_json({"error": "Chưa khởi tạo nhân vật người yêu"}, status=400)
-
-            # 1. Save user message
-            cursor.execute("""
-            INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, media_url, platform)
-            VALUES (?, ?, 'user', ?, ?, ?, 'web')
-            """, (user['id'], lover_id, message_type, content, media_url))
-            user_msg_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
-
-            # 2. Generate AI response
-            ai_reply = generate_ai_response(user['id'], lover_id, content or "Em ơi xem tấm ảnh này nè 💕")
-
-            # 3. Save AI message
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("""
-            INSERT INTO chat_messages (user_id, lover_id, sender, message_type, content, platform)
-            VALUES (?, ?, 'ai', 'text', ?, 'web')
-            """, (user['id'], lover_id, ai_reply))
-            ai_msg_id = cursor.lastrowid
-            cursor.execute("SELECT * FROM chat_messages WHERE id = ?", (ai_msg_id,))
-            ai_msg_row = dict(cursor.fetchone())
-
-            # Get current lover emotion state
-            cursor.execute("SELECT emotion_state FROM ai_lovers WHERE id = ?", (lover_id,))
-            emo_row = cursor.fetchone()
-            emo = json.loads(emo_row['emotion_state']) if emo_row and emo_row['emotion_state'] else {}
-
-            conn.commit()
-            conn.close()
-
-            return self.send_json({
-                "message": ai_msg_row,
-                "emotion": emo
-            })
-
-        # Clear Chat History
-        if path == "/api/chat/clear":
-            body = self.read_json_body()
-            lover_id = body.get('lover_id')
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM chat_messages WHERE user_id = ?", (user['id'],))
-            conn.commit()
-            conn.close()
-            return self.send_json({"message": "Đã xóa toàn bộ lịch sử trò chuyện"})
-
-        # Trigger Proactive Nudge
-        if path == "/api/chat/trigger-nudge":
-            body = self.read_json_body()
-            lover_id = body.get('lover_id')
-            nudge_type = body.get('nudge_type', 'random_care')
-            conn = get_db()
-            cursor = conn.cursor()
-            if not lover_id:
-                cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
-                row = cursor.fetchone()
-                lover_id = row['id'] if row else None
-            conn.close()
-
-            if lover_id:
-                msg = trigger_instant_proactive_nudge(user['id'], lover_id, nudge_type)
-                return self.send_json({"message": msg, "status": "success"})
-            return self.send_json({"error": "Lover not found"}, status=400)
-
-        # Memories CRUD
-        if path == "/api/memories":
-            body = self.read_json_body()
-            lover_id = body.get('lover_id')
-            category = body.get('category', 'fact')
-            key_fact = body.get('key_fact', '').strip()
-            detail = body.get('detail', '').strip()
-            importance = int(body.get('importance', 3))
-
-            if not key_fact:
-                return self.send_json({"error": "Thông tin ký ức không được để trống"}, status=400)
-
-            conn = get_db()
-            cursor = conn.cursor()
-            if not lover_id:
-                cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
                 r = cursor.fetchone()
                 lover_id = r['id'] if r else None
 
+            # Insert message
             cursor.execute("""
-            INSERT INTO ai_memories (user_id, lover_id, category, key_fact, detail, importance)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """, (user['id'], lover_id, category, key_fact, detail, importance))
-            mem_id = cursor.lastrowid
-            cursor.execute("SELECT * FROM ai_memories WHERE id = ?", (mem_id,))
-            mem_row = dict(cursor.fetchone())
+            INSERT INTO chat_messages (user_id, lover_id, sender, content, platform)
+            VALUES (?, ?, ?, ?, 'web')
+            """, (user['id'], lover_id, sender, content))
+            conn.commit()
+
+            # If sender is human_admin (operator takeover), don't trigger AI response
+            if sender == 'human_admin':
+                cursor.execute("SELECT * FROM chat_messages WHERE id = ?", (cursor.lastrowid,))
+                msg_row = dict(cursor.fetchone())
+                conn.close()
+                log_activity(user['id'], "takeover_message", f"Người thật gửi tin nhắn: {content[:35]}...", "success")
+                return self.send_json({"message": msg_row, "ai_reply": None})
+
+            # Check if takeover is active
+            cursor.execute("SELECT human_takeover_mode, auto_reply_enabled FROM ai_lovers WHERE id = ?", (lover_id,))
+            l_info = cursor.fetchone()
+            takeover = l_info['human_takeover_mode'] if l_info else 0
+
+            ai_reply_row = None
+            if takeover == 0:
+                reply_text = generate_ai_response(user['id'], lover_id, content)
+                cursor.execute("""
+                INSERT INTO chat_messages (user_id, lover_id, sender, content, platform)
+                VALUES (?, ?, 'ai', ?, 'web')
+                """, (user['id'], lover_id, reply_text))
+                conn.commit()
+                cursor.execute("SELECT * FROM chat_messages WHERE id = ?", (cursor.lastrowid,))
+                ai_reply_row = dict(cursor.fetchone())
+
+            cursor.execute("SELECT emotion_state FROM ai_lovers WHERE id = ?", (lover_id,))
+            emo_row = cursor.fetchone()
+            emo = json.loads(emo_row['emotion_state']) if emo_row and emo_row['emotion_state'] else {}
+            conn.close()
+
+            return self.send_json({
+                "message": ai_reply_row,
+                "emotion": emo,
+                "takeover_active": bool(takeover)
+            })
+
+        # Toggle Auto Reply
+        if path == "/api/chat/toggle-auto-reply":
+            body = self.read_json_body()
+            enabled = 1 if body.get('enabled', True) else 0
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE ai_lovers SET auto_reply_enabled = ? WHERE user_id = ?", (enabled, user['id']))
+            cursor.execute("UPDATE messenger_integrations SET auto_reply_enabled = ? WHERE user_id = ?", (enabled, user['id']))
             conn.commit()
             conn.close()
-            return self.send_json({"memory": mem_row})
+            log_activity(user['id'], "setting_change", f"Đã {'BẬT' if enabled else 'TẮT'} chế độ trả lời tự động", "success")
+            return self.send_json({"auto_reply_enabled": enabled})
+
+        # Toggle Human Takeover
+        if path == "/api/chat/toggle-takeover":
+            body = self.read_json_body()
+            takeover = 1 if body.get('takeover', False) else 0
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE ai_lovers SET human_takeover_mode = ? WHERE user_id = ?", (takeover, user['id']))
+            cursor.execute("UPDATE messenger_integrations SET human_takeover_mode = ? WHERE user_id = ?", (takeover, user['id']))
+            conn.commit()
+            conn.close()
+            log_activity(user['id'], "takeover_toggle", f"Chuyển chế độ: {'Người thật can thiệp' if takeover else 'AI Girlfriend tự động'}", "info")
+            return self.send_json({"human_takeover_mode": takeover})
+
+        # Save Personality Sliders & Voice
+        if path == "/api/personality":
+            body = self.read_json_body()
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("""
+            UPDATE ai_lovers SET
+                name = COALESCE(?, name),
+                style = COALESCE(?, style),
+                personality_summary = COALESCE(?, personality_summary),
+                pronouns_ai = COALESCE(?, pronouns_ai),
+                pronouns_user = COALESCE(?, pronouns_user),
+                trait_gentleness = COALESCE(?, trait_gentleness),
+                trait_romance = COALESCE(?, trait_romance),
+                trait_humor = COALESCE(?, trait_humor),
+                trait_proactiveness = COALESCE(?, trait_proactiveness),
+                voice_style = COALESCE(?, voice_style),
+                voice_rate = COALESCE(?, voice_rate),
+                voice_pitch = COALESCE(?, voice_pitch)
+            WHERE user_id = ?
+            """, (
+                body.get('name'), body.get('style'), body.get('personality_summary'),
+                body.get('pronouns_ai'), body.get('pronouns_user'),
+                body.get('trait_gentleness'), body.get('trait_romance'),
+                body.get('trait_humor'), body.get('trait_proactiveness'),
+                body.get('voice_style'), body.get('voice_rate'), body.get('voice_pitch'),
+                user['id']
+            ))
+            conn.commit()
+            cursor.execute("SELECT * FROM ai_lovers WHERE user_id = ?", (user['id'],))
+            updated = dict(cursor.fetchone())
+            conn.close()
+            log_activity(user['id'], "setting_change", "Cập nhật tính cách & giọng nói cô người yêu AI", "success")
+            return self.send_json({"lover": updated, "message": "Đã lưu cài đặt tính cách thành công!"})
+
+        # Save Schedule Timings
+        if path == "/api/schedule/settings":
+            body = self.read_json_body()
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("""
+            UPDATE ai_lovers SET
+                morning_time = COALESCE(?, morning_time),
+                lunch_time = COALESCE(?, lunch_time),
+                afternoon_time = COALESCE(?, afternoon_time),
+                night_time = COALESCE(?, night_time),
+                enable_morning = COALESCE(?, enable_morning),
+                enable_lunch = COALESCE(?, enable_lunch),
+                enable_afternoon = COALESCE(?, enable_afternoon),
+                enable_night = COALESCE(?, enable_night),
+                enable_idle_checkin = COALESCE(?, enable_idle_checkin)
+            WHERE user_id = ?
+            """, (
+                body.get('morning_time'), body.get('lunch_time'), body.get('afternoon_time'), body.get('night_time'),
+                body.get('enable_morning'), body.get('enable_lunch'), body.get('enable_afternoon'), body.get('enable_night'),
+                body.get('enable_idle_checkin'), user['id']
+            ))
+            conn.commit()
+            conn.close()
+            log_activity(user['id'], "setting_change", "Cập nhật lịch trình nhắn tin chủ động", "success")
+            return self.send_json({"message": "Đã lưu lịch trình nhắn tin thành công!"})
+
+        # Test Schedule Trigger
+        if path == "/api/schedule/test":
+            body = self.read_json_body()
+            milestone = body.get('milestone', 'morning')
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
+            r = cursor.fetchone()
+            lover_id = r['id'] if r else None
+            conn.close()
+            if lover_id:
+                msg = trigger_instant_proactive_nudge(user['id'], lover_id, milestone)
+                return self.send_json({"message": msg, "milestone": milestone})
+            return self.send_json({"error": "Lover not found"}, status=400)
 
         # Voice Call Turn Processing
         if path == "/api/voice/process-turn":
             body = self.read_json_body()
-            lover_id = body.get('lover_id')
             transcript = body.get('transcript', '').strip()
-            if not transcript:
-                return self.send_json({"error": "Không có giọng nói nhận diện"}, status=400)
-
+            lover_id = body.get('lover_id')
+            if not lover_id:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
+                r = cursor.fetchone()
+                lover_id = r['id'] if r else 1
+                conn.close()
             reply = generate_ai_response(user['id'], lover_id, transcript, platform="voice")
-            return self.send_json({
-                "transcript": transcript,
-                "reply": reply
-            })
+            return self.send_json({"transcript": transcript, "reply": reply})
 
-        # Voice Call Session log
+        # Voice Call End Log
         if path == "/api/voice/end":
             body = self.read_json_body()
             lover_id = body.get('lover_id')
             duration = int(body.get('duration_seconds', 0))
-            summary = body.get('summary', 'Cuộc gọi tâm sự cùng người yêu')
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("""
-            INSERT INTO voice_calls (user_id, lover_id, call_direction, duration_seconds, summary)
-            VALUES (?, ?, 'outgoing', ?, ?)
-            """, (user['id'], lover_id, duration, summary))
+            INSERT INTO voice_calls (user_id, lover_id, duration_seconds, summary)
+            VALUES (?, ?, ?, 'Cuộc gọi tâm sự cùng cô người yêu AI')
+            """, (user['id'], lover_id, duration))
             conn.commit()
             conn.close()
+            log_activity(user['id'], "call_session", f"Kết thúc cuộc gọi thoại ({duration}s)", "success")
             return self.send_json({"status": "logged"})
-
-        # Love Diary CRUD
-        if path == "/api/diary":
-            body = self.read_json_body()
-            lover_id = body.get('lover_id')
-            title = body.get('title', 'Kỷ niệm yêu thương').strip()
-            content = body.get('content', '').strip()
-            entry_date = body.get('entry_date', datetime.now().strftime("%Y-%m-%d"))
-            mood = body.get('mood', 'Hạnh phúc')
-            photo_url = body.get('photo_url', '')
-
-            if not content:
-                return self.send_json({"error": "Nội dung nhật ký không được để trống"}, status=400)
-
-            conn = get_db()
-            cursor = conn.cursor()
-            if not lover_id:
-                cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
-                r = cursor.fetchone()
-                lover_id = r['id'] if r else None
-
-            cursor.execute("""
-            INSERT INTO love_diaries (user_id, lover_id, title, content, entry_date, mood, photo_url, written_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'both')
-            """, (user['id'], lover_id, title, content, entry_date, mood, photo_url))
-            d_id = cursor.lastrowid
-            cursor.execute("SELECT * FROM love_diaries WHERE id = ?", (d_id,))
-            diary_row = dict(cursor.fetchone())
-            conn.commit()
-            conn.close()
-            return self.send_json({"diary": diary_row})
-
-        # Photo Album CRUD
-        if path == "/api/album":
-            body = self.read_json_body()
-            lover_id = body.get('lover_id')
-            caption = body.get('caption', 'Khoảnh khắc đáng nhớ').strip()
-            image_url = body.get('image_url', '').strip()
-            captured_date = body.get('captured_date', datetime.now().strftime("%Y-%m-%d"))
-
-            if not image_url:
-                return self.send_json({"error": "Link ảnh không được để trống"}, status=400)
-
-            conn = get_db()
-            cursor = conn.cursor()
-            if not lover_id:
-                cursor.execute("SELECT id FROM ai_lovers WHERE user_id = ? LIMIT 1", (user['id'],))
-                r = cursor.fetchone()
-                lover_id = r['id'] if r else None
-
-            cursor.execute("""
-            INSERT INTO photo_albums (user_id, lover_id, caption, image_url, captured_date)
-            VALUES (?, ?, ?, ?, ?)
-            """, (user['id'], lover_id, caption, image_url, captured_date))
-            conn.commit()
-            conn.close()
-            return self.send_json({"status": "added"})
-
-        # Messenger Simulated incoming message tester
-        if path == "/api/messenger/simulate":
-            body = self.read_json_body()
-            text = body.get('text', 'Chào em yêu!')
-            sender_id = body.get('sender_id', 'simulated_user_123')
-
-            sim_event = {
-                "object": "page",
-                "entry": [{
-                    "messaging": [{
-                        "sender": {"id": sender_id},
-                        "recipient": {"id": "page_id_test"},
-                        "message": {"text": text}
-                    }]
-                }]
-            }
-            res = handle_incoming_messenger_event(sim_event, is_simulated=True)
-            return self.send_json(res)
 
         # Messenger Configuration
         if path == "/api/messenger/config":
             body = self.read_json_body()
             page_token = body.get('page_access_token', '').strip()
-            verify_token = body.get('verify_token', '').strip()
+            page_id = body.get('page_id', '').strip()
+            page_name = body.get('page_name', 'My Virtual Love Page').strip()
             app_secret = body.get('app_secret', '').strip()
+            verify_token = body.get('verify_token', '').strip()
 
             conn = get_db()
             cursor = conn.cursor()
@@ -767,22 +599,31 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
             if app_secret:
                 cursor.execute("UPDATE system_settings SET value = ? WHERE key = 'messenger_app_secret'", (app_secret,))
 
-            # Update user's integration row
+            is_connected = 1 if page_token else 0
             cursor.execute("""
-            INSERT INTO messenger_integrations (user_id, page_access_token, verify_token, app_secret, is_active)
-            VALUES (?, ?, ?, ?, 1)
+            INSERT INTO messenger_integrations (user_id, page_id, page_name, page_access_token, verify_token, app_secret, is_connected)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                page_access_token=excluded.page_access_token,
-                verify_token=excluded.verify_token,
-                app_secret=excluded.app_secret,
-                is_active=1
-            """, (user['id'], page_token, verify_token, app_secret))
-
+                page_id=excluded.page_id, page_name=excluded.page_name, page_access_token=excluded.page_access_token,
+                verify_token=excluded.verify_token, app_secret=excluded.app_secret, is_connected=excluded.is_connected
+            """, (user['id'], page_id, page_name, page_token, verify_token, app_secret, is_connected))
             conn.commit()
             conn.close()
-            return self.send_json({"message": "Đã lưu cấu hình Messenger thành công!"})
+            log_activity(user['id'], "messenger_config", f"Cập nhật kết nối Fanpage Messenger [{page_name}]", "success")
+            return self.send_json({"message": "Đã lưu cấu hình Messenger thành công!", "is_connected": is_connected})
 
-        # Admin Settings Update
+        # Messenger Simulator
+        if path == "/api/messenger/simulate":
+            body = self.read_json_body()
+            text = body.get('text', 'Chào em yêu!')
+            sim_event = {
+                "object": "page",
+                "entry": [{"messaging": [{"sender": {"id": "sim_fb_user_88"}, "recipient": {"id": "sim_page"}, "message": {"text": text}}]}]
+            }
+            res = handle_incoming_messenger_event(sim_event, is_simulated=True)
+            return self.send_json(res)
+
+        # Admin Settings
         if path == "/api/admin/settings":
             if user.get('role') != 'admin':
                 return self.send_json({"error": "Forbidden"}, status=403)
@@ -790,54 +631,12 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
             conn = get_db()
             cursor = conn.cursor()
             for key, val in body.items():
-                cursor.execute("""
-                INSERT INTO system_settings (key, value) VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-                """, (key, str(val)))
+                cursor.execute("INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, str(val)))
             conn.commit()
             conn.close()
-            return self.send_json({"message": "Đã cập nhật cấu hình hệ thống thành công!"})
+            return self.send_json({"message": "Đã lưu cài đặt quản trị thành công!"})
 
         return self.send_json({"error": "POST route not found"}, status=404)
-
-    def do_DELETE(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        query = urllib.parse.parse_qs(parsed.query)
-
-        user = get_current_user(self.headers, query)
-        if not user:
-            return self.send_json({"error": "Unauthorized"}, status=401)
-
-        conn = get_db()
-        cursor = conn.cursor()
-
-        # Delete Memory
-        if path.startswith("/api/memories/"):
-            mem_id = int(path.split("/")[-1])
-            cursor.execute("DELETE FROM ai_memories WHERE id = ? AND user_id = ?", (mem_id, user['id']))
-            conn.commit()
-            conn.close()
-            return self.send_json({"status": "deleted"})
-
-        # Delete Diary
-        if path.startswith("/api/diary/"):
-            diary_id = int(path.split("/")[-1])
-            cursor.execute("DELETE FROM love_diaries WHERE id = ? AND user_id = ?", (diary_id, user['id']))
-            conn.commit()
-            conn.close()
-            return self.send_json({"status": "deleted"})
-
-        # Delete Photo
-        if path.startswith("/api/album/"):
-            photo_id = int(path.split("/")[-1])
-            cursor.execute("DELETE FROM photo_albums WHERE id = ? AND user_id = ?", (photo_id, user['id']))
-            conn.commit()
-            conn.close()
-            return self.send_json({"status": "deleted"})
-
-        conn.close()
-        return self.send_json({"error": "DELETE route not found"}, status=404)
 
 def run_server():
     init_db()
@@ -846,9 +645,9 @@ def run_server():
     server_address = ('127.0.0.1', PORT)
     httpd = socketserver.ThreadingTCPServer(server_address, LoverRequestHandler)
     print(f"==================================================")
-    print(f"✨ VIRTUAL AI LOVER - SERVER IS RUNNING ✨")
-    print(f"Web App URL: http://localhost:{PORT}")
-    print(f"Messenger Webhook: http://localhost:{PORT}/api/messenger/webhook")
+    print(f"✨ AI GIRLFRIEND – MY VIRTUAL LOVE ✨")
+    print(f"URL: http://localhost:{PORT}")
+    print(f"Webhook: http://localhost:{PORT}/api/messenger/webhook")
     print(f"Admin Account: admin@lover.ai / admin123456")
     print(f"Demo User:     demo@lover.ai / 123456")
     print(f"==================================================")
