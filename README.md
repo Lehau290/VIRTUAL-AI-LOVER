@@ -1,6 +1,19 @@
 # VIRTUAL AI LOVER – NGƯỜI YÊU AI ẢO 💕
 
-Hệ thống người yêu ảo thông minh, giàu cảm xúc, có trí nhớ dài hạn, biết quan tâm chăm sóc, gọi thoại hai chiều và kết nối Facebook Messenger.
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Meta](https://img.shields.io/badge/Meta-Messenger%20Platform-0084FF?style=for-the-badge&logo=messenger&logoColor=white)
+![Gemini AI](https://img.shields.io/badge/AI-Google%20Gemini-8E75C0?style=for-the-badge&logo=google&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+
+<p align="center">
+  <b>Hệ thống người yêu ảo thông minh, giàu cảm xúc, có trí nhớ dài hạn, biết quan tâm chăm sóc, gọi thoại hai chiều và kết nối Facebook Messenger.</b>
+</p>
+
+</div>
 
 ---
 

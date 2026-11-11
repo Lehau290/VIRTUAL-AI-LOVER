@@ -1,0 +1,5 @@
+# Virtual AI Lover uses Python 3.8+ Standard Library
+# Zero external heavy packages required for core functionality!
+# Optional packages for extended integrations:
+# requests>=2.31.0
+# google-generativeai>=0.5.0
