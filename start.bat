@@ -1,10 +1,10 @@
 @echo off
-title Virtual AI Lover - Nguoi Yeu AI Ao
+title AI Girlfriend - My Virtual Love
 color 0D
 echo ============================================================
-echo       VIRTUAL AI LOVER - NGUOI YEU AI AO
+echo       AI GIRLFRIEND - MY VIRTUAL LOVE
 echo ============================================================
-echo Dang khoi dong may chu tai http://localhost:3000 ...
+echo Dang khoi dong may chu backend tai http://localhost:3000 ...
 start http://localhost:3000
 python server.py
 pause
