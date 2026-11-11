@@ -25,7 +25,7 @@ from scheduler import (
     start_scheduler, trigger_instant_proactive_nudge
 )
 
-PORT = 8080
+PORT = 3000
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # Active sessions: token -> {user_id, email, role, created_at}
@@ -842,7 +842,8 @@ class LoverRequestHandler(http.server.BaseHTTPRequestHandler):
 def run_server():
     init_db()
     start_scheduler()
-    server_address = ('', PORT)
+    socketserver.TCPServer.allow_reuse_address = True
+    server_address = ('127.0.0.1', PORT)
     httpd = socketserver.ThreadingTCPServer(server_address, LoverRequestHandler)
     print(f"==================================================")
     print(f"✨ VIRTUAL AI LOVER - SERVER IS RUNNING ✨")
