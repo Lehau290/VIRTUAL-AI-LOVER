@@ -302,6 +302,11 @@ def init_db():
         ?);
         """, (demo_user_id, lover_id, first_met))
 
+    # Create indexes for high concurrency and fast search
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_lover ON chat_messages(user_id, lover_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_memories_lover ON ai_memories(lover_id, importance);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_diaries_user ON love_diaries(user_id, entry_date);")
+
     conn.commit()
     conn.close()
 

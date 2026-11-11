@@ -20,8 +20,12 @@ const State = {
     searchQuery: '',
     isTyping: false,
     
-    // Voice call state
+    // Voice & Video call state
     callActive: false,
+    callMode: 'voice', // 'voice' or 'video'
+    videoFilter: 'natural',
+    cameraActive: false,
+    localStream: null,
     callDuration: 0,
     callTimerInterval: null,
     isMuted: false,
@@ -400,7 +404,7 @@ function startVoiceCall() {
     if (!State.lover) return;
     State.callActive = true;
     State.callDuration = 0;
-    State.callTranscript = 'Đang kết nối cuộc gọi yêu thương...';
+    State.callTranscript = State.callMode === 'video' ? 'Đang kết nối cuộc gọi video yêu thương... 📹' : 'Đang kết nối cuộc gọi thoại... 📞';
     playTone(600, 'sine', 0.2);
 
     if (State.speechRecognition) {
@@ -410,17 +414,23 @@ function startVoiceCall() {
         } catch (e) {}
     }
 
+    if (State.callMode === 'video') {
+        startCameraPreview();
+    }
+
     State.callTimerInterval = setInterval(() => {
         State.callDuration++;
         renderVoiceCallTimer();
     }, 1000);
 
     renderVoiceCallView();
-    // Greeting greeting on call
+    // Greeting on call
     setTimeout(() => {
         const p_ai = State.lover.pronouns_ai || 'em';
         const p_user = State.lover.pronouns_user || 'anh';
-        const greeting = `Alo, ${p_ai} nghe đây nè ${p_user} yêu! Thèm nghe giọng ${p_user} quá đi mất!`;
+        const greeting = State.callMode === 'video'
+            ? `Alo, ${p_ai} thấy ${p_user} rồi nè! Hôm nay ${p_user} nhìn đáng yêu quá à! 💕`
+            : `Alo, ${p_ai} nghe đây nè ${p_user} yêu! Thèm nghe giọng ${p_user} quá đi mất!`;
         State.callTranscript = `${State.lover.name}: "${greeting}"`;
         renderVoiceCallView();
         speakText(greeting);
@@ -437,6 +447,7 @@ function endVoiceCall() {
             State.isListening = false;
         } catch (e) {}
     }
+    stopCameraPreview();
     window.speechSynthesis?.cancel();
 
     // Log call
@@ -445,12 +456,79 @@ function endVoiceCall() {
         body: {
             lover_id: State.lover.id,
             duration_seconds: State.callDuration,
-            summary: `Cuộc gọi thoại ${formatDuration(State.callDuration)}`
+            summary: `Cuộc gọi ${State.callMode === 'video' ? 'video' : 'thoại'} ${formatDuration(State.callDuration)}`
         }
     }).catch(console.error);
 
     showToast(`Cuộc gọi đã kết thúc (${formatDuration(State.callDuration)})`, 'info');
     renderVoiceCallView();
+}
+
+function setCallMode(mode) {
+    State.callMode = mode;
+    renderVoiceCallView();
+    if (State.callActive) {
+        if (mode === 'video') {
+            startCameraPreview();
+        } else {
+            stopCameraPreview();
+        }
+    }
+}
+
+async function startCameraPreview() {
+    try {
+        if (!navigator.mediaDevices?.getUserMedia) return;
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        State.localStream = stream;
+        State.cameraActive = true;
+        setTimeout(() => {
+            const videoEl = document.getElementById('user-pip-video');
+            if (videoEl) {
+                videoEl.srcObject = stream;
+            }
+        }, 150);
+    } catch (e) {
+        console.warn('Camera access error:', e);
+        showToast('Không thể mở camera (cuộc gọi vẫn kết nối bình thường)', 'info');
+    }
+}
+
+function stopCameraPreview() {
+    if (State.localStream) {
+        State.localStream.getTracks().forEach(t => t.stop());
+        State.localStream = null;
+        State.cameraActive = false;
+    }
+}
+
+function setVideoFilter(filterName) {
+    State.videoFilter = filterName;
+    const aiVideo = document.getElementById('ai-video-frame');
+    if (!aiVideo) return;
+    if (filterName === 'romantic') {
+        aiVideo.style.filter = 'sepia(0.2) hue-rotate(310deg) saturate(1.3) contrast(1.05)';
+    } else if (filterName === 'soft') {
+        aiVideo.style.filter = 'contrast(1.05) saturate(1.2) brightness(1.08)';
+    } else if (filterName === 'cyber') {
+        aiVideo.style.filter = 'hue-rotate(250deg) contrast(1.2) saturate(1.4)';
+    } else {
+        aiVideo.style.filter = 'none';
+    }
+}
+
+function spawnFloatingHearts(e) {
+    const x = e ? e.clientX : window.innerWidth / 2;
+    const y = e ? e.clientY : window.innerHeight / 2;
+    for (let i = 0; i < 6; i++) {
+        const heart = document.createElement('div');
+        heart.className = 'floating-heart text-2xl select-none';
+        heart.innerText = ['💖', '💕', '🥰', '✨', '🌹', '💌'][Math.floor(Math.random() * 6)];
+        heart.style.left = `${x + (Math.random() * 80 - 40)}px`;
+        heart.style.top = `${y + (Math.random() * 60 - 30)}px`;
+        document.body.appendChild(heart);
+        setTimeout(() => heart.remove(), 2500);
+    }
 }
 
 function formatDuration(sec) {
@@ -639,9 +717,38 @@ function renderSidebarFooter() {
     `;
 }
 
+function getRelationshipStats() {
+    const l = State.lover;
+    const days = l?.first_met_date ? calculateDaysTogether(l.first_met_date) : 1;
+    const msgCount = State.messages.length;
+    const score = Math.min(1000, days * 15 + msgCount * 12 + (State.memories.length * 35));
+    let level = 1;
+    let title = "Mới quen";
+    let progress = Math.min(100, Math.floor((score / 200) * 100));
+
+    if (score >= 800) {
+        level = 5;
+        title = "Tri kỷ vĩnh cửu";
+        progress = 100;
+    } else if (score >= 600) {
+        level = 4;
+        title = "Hẹn hò say đắm";
+        progress = Math.min(100, Math.floor(((score - 600) / 200) * 100));
+    } else if (score >= 350) {
+        level = 3;
+        title = "Đang tìm hiểu";
+        progress = Math.min(100, Math.floor(((score - 350) / 250) * 100));
+    } else if (score >= 150) {
+        level = 2;
+        title = "Thân thiết ngọt ngào";
+        progress = Math.min(100, Math.floor(((score - 150) / 200) * 100));
+    }
+    return { level, title, score, progress, days };
+}
+
 function renderMainHeader() {
     const l = State.lover;
-    const daysTogether = l?.first_met_date ? calculateDaysTogether(l.first_met_date) : 1;
+    const rel = getRelationshipStats();
 
     return `
         <header class="glass-panel px-4 py-2.5 rounded-2xl flex items-center justify-between border border-white/40 dark:border-white/10 shadow-sm">
@@ -653,10 +760,21 @@ function renderMainHeader() {
                     <h2 class="font-bold text-sm md:text-base flex items-center gap-2">
                         <span>Virtual AI Lover</span>
                         <span class="text-pink-500 text-xs md:text-sm">❤️</span>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-900/60 text-pink-600 dark:text-pink-300 font-normal">
-                            Đã bên nhau ${daysTogether} ngày
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-900/60 text-pink-600 dark:text-pink-300 font-semibold">
+                            ${rel.days} ngày bên nhau
                         </span>
                     </h2>
+                </div>
+            </div>
+
+            <!-- Love Level Milestone Bar -->
+            <div class="hidden sm:flex flex-col items-start gap-1 px-3 py-1 rounded-xl bg-pink-50/60 dark:bg-pink-950/20 border border-pink-200/40">
+                <div class="flex items-center gap-2 text-[11px] font-bold text-pink-600 dark:text-pink-300">
+                    <span>💖 Cấp ${rel.level}: ${rel.title}</span>
+                    <span class="text-[10px] text-muted">(${rel.progress}%)</span>
+                </div>
+                <div class="w-32 h-1.5 bg-pink-200/50 dark:bg-white/10 rounded-full overflow-hidden">
+                    <div class="h-full exp-bar-glow rounded-full" style="width: ${rel.progress}%"></div>
                 </div>
             </div>
 
@@ -667,6 +785,9 @@ function renderMainHeader() {
                 </button>
                 <button onclick="triggerNudge('random_care')" class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition" title="Bảo AI nhắn tin hỏi thăm ngay">
                     <span>💌</span> <span class="hidden sm:inline">Hỏi thăm</span>
+                </button>
+                <button onclick="spawnFloatingHearts(event)" class="p-2 rounded-xl glass-pill hover:scale-110 transition text-pink-500" title="Thả tim yêu thương">
+                    💖
                 </button>
                 <button onclick="toggleTheme()" class="md:hidden p-2 rounded-xl glass-pill">
                     ${State.theme === 'dark' ? '☀️' : '🌙'}
@@ -758,7 +879,7 @@ function renderChatView() {
             </div>
 
             <!-- Messages Scroll Area -->
-            <div id="chat-scroll-area" class="flex-1 overflow-y-auto p-4 space-y-3.5">
+            <div id="chat-scroll-area" ondblclick="spawnFloatingHearts(event)" class="flex-1 overflow-y-auto p-4 space-y-3.5" title="Nhấp đúp chuột để thả tim yêu thương">
                 <!-- Dynamically loaded messages -->
             </div>
 
@@ -767,6 +888,25 @@ function renderChatView() {
 
             <!-- Chat Input Box -->
             <div class="p-3 bg-white/50 dark:bg-white/5 border-t border-pink-100 dark:border-white/5 backdrop-blur-md">
+                <!-- Quick Icebreaker Conversation Starters -->
+                <div class="flex items-center gap-1.5 mb-2 overflow-x-auto pb-1 text-xs no-scrollbar">
+                    <button onclick="sendMessage('Em đang làm gì đấy? Nhớ em quá 💕')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-pink-600 dark:text-pink-300 whitespace-nowrap transition">
+                        💬 Em đang làm gì đấy?
+                    </button>
+                    <button onclick="sendMessage('Hôm nay anh đi làm hơi mệt... 🥺')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-purple-600 dark:text-purple-300 whitespace-nowrap transition">
+                        🥺 Hôm nay anh hơi mệt
+                    </button>
+                    <button onclick="sendMessage('Em ơi gửi cho anh xem một tấm ảnh selfie của em đi nào 💕')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-pink-600 dark:text-pink-300 whitespace-nowrap transition">
+                        📸 Gửi ảnh selfie của em
+                    </button>
+                    <button onclick="sendMessage('Em có giận dỗi hay ghen gì anh không đấy? 😤')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-purple-600 dark:text-purple-300 whitespace-nowrap transition">
+                        😤 Em có ghen không?
+                    </button>
+                    <button onclick="sendMessage('Em ơi nhắc lại kỷ niệm đáng nhớ của hai đứa mình đi ✨')" class="px-2.5 py-1 rounded-full glass-pill hover:bg-pink-100 text-pink-600 dark:text-pink-300 whitespace-nowrap transition">
+                        ✨ Kỷ niệm đáng nhớ
+                    </button>
+                </div>
+
                 <!-- Quick Sticker Tray -->
                 <div class="flex items-center gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
                     ${ROMANTIC_STICKERS.map(s => `
@@ -891,48 +1031,91 @@ async function clearChatHistory() {
 }
 
 // ----------------------------------------------------
-// 2. VOICE CALL VIEW
+// 2. VOICE & VIDEO CALL VIEW
 // ----------------------------------------------------
 function renderVoiceCallView() {
     const l = State.lover;
+    const isVideo = State.callMode === 'video';
+
     return `
         <div class="h-full flex flex-col items-center justify-between glass-panel p-6 rounded-3xl border border-white/40 dark:border-white/10 relative overflow-hidden shadow-2xl">
             <!-- Background Glow Elements -->
-            <div class="absolute -top-20 -left-20 w-72 h-72 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
-            <div class="absolute -bottom-20 -right-20 w-72 h-72 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -top-20 -left-20 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -bottom-20 -right-20 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
 
-            <!-- Call Header -->
-            <div class="text-center z-10">
-                <span class="text-xs px-3 py-1 rounded-full bg-pink-100 dark:bg-pink-950 text-pink-600 dark:text-pink-300 font-semibold tracking-wider uppercase">
-                    ${State.callActive ? 'Đang trong cuộc gọi' : 'Sẵn sàng gọi thoại'}
-                </span>
-                <h3 class="font-bold text-2xl mt-2">${l?.name || 'Người yêu AI'}</h3>
-                <p id="voice-timer" class="text-sm text-pink-500 font-mono mt-0.5">
-                    ${State.callActive ? formatDuration(State.callDuration) : 'Nhấn nút để bắt đầu nói chuyện'}
+            <!-- Call Header & Mode Switcher -->
+            <div class="text-center z-10 w-full max-w-md">
+                <!-- Mode Switcher Pill -->
+                <div class="inline-flex p-1 rounded-2xl glass-pill mb-2 shadow-sm">
+                    <button onclick="setCallMode('voice')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition ${!isVideo ? 'btn-romantic shadow' : 'text-gray-600 dark:text-gray-400'}">
+                        📞 Gọi Thoại
+                    </button>
+                    <button onclick="setCallMode('video')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition ${isVideo ? 'btn-romantic shadow' : 'text-gray-600 dark:text-gray-400'}">
+                        📹 Gọi Video AI
+                    </button>
+                </div>
+
+                <h3 class="font-bold text-2xl mt-1">${l?.name || 'Người yêu AI'}</h3>
+                <p id="voice-timer" class="text-xs text-pink-500 font-mono mt-0.5">
+                    ${State.callActive ? formatDuration(State.callDuration) : (isVideo ? 'Sẵn sàng kết nối video trực tiếp' : 'Sẵn sàng gọi thoại hai chiều')}
                 </p>
+
+                <!-- Video Filter Selector (when in Video mode) -->
+                ${isVideo && State.callActive ? `
+                    <div class="flex items-center justify-center gap-1.5 mt-2">
+                        <span class="text-[10px] text-muted">Bộ lọc:</span>
+                        <button onclick="setVideoFilter('natural')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Tự nhiên</button>
+                        <button onclick="setVideoFilter('soft')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Mơ mộng</button>
+                        <button onclick="setVideoFilter('romantic')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Hồng phấn</button>
+                        <button onclick="setVideoFilter('cyber')" class="text-[10px] px-2 py-0.5 rounded-full glass-pill hover:bg-pink-100">Điện ảnh</button>
+                    </div>
+                ` : ''}
             </div>
 
-            <!-- Avatar & Sound Wave Center -->
-            <div class="flex flex-col items-center my-auto z-10">
-                <div class="relative ${State.callActive ? 'animate-bounce' : ''}">
-                    <img src="${l?.avatar_url || ''}"
-                         class="w-36 h-36 md:w-44 md:h-44 rounded-full object-cover shadow-2xl avatar-glow border-4 border-white/60 dark:border-white/20" />
-                </div>
+            <!-- Avatar / Video Center Screen -->
+            <div class="flex flex-col items-center my-auto z-10 relative w-full max-w-lg">
+                ${isVideo ? `
+                    <!-- Video Call Mode Display -->
+                    <div class="relative w-full aspect-[4/3] max-h-[340px] rounded-3xl overflow-hidden shadow-2xl border-2 border-white/60 dark:border-white/20 glass-panel flex items-center justify-center bg-black/20">
+                        <img id="ai-video-frame" src="${l?.avatar_url || ''}"
+                             class="w-full h-full object-cover transition-all duration-500 ${State.callActive ? 'scale-105 filter brightness-105' : ''}" />
+                        
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
 
-                <!-- Animated Sound Wave Visualizer -->
-                <div class="sound-wave mt-6 ${State.callActive ? 'opacity-100' : 'opacity-20'}">
-                    <div class="sound-bar"></div>
-                    <div class="sound-bar"></div>
-                    <div class="sound-bar"></div>
-                    <div class="sound-bar"></div>
-                    <div class="sound-bar"></div>
-                    <div class="sound-bar"></div>
-                    <div class="sound-bar"></div>
-                </div>
+                        <!-- Live connection status badge -->
+                        <div class="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md text-white text-[11px] font-semibold">
+                            <span class="w-2 h-2 rounded-full ${State.callActive ? 'bg-emerald-400 animate-ping' : 'bg-gray-400'}"></span>
+                            <span>${State.callActive ? 'HD Video • 60 FPS' : 'Chế độ chờ'}</span>
+                        </div>
+
+                        <!-- User PIP (Picture-in-Picture) Webcam Stream -->
+                        <div class="pip-video-window bg-gray-900 border border-white/40 shadow-xl">
+                            <video id="user-pip-video" autoplay playsinline muted class="w-full h-full object-cover mirror-video"></video>
+                            <span class="absolute bottom-1 right-2 text-[9px] bg-black/60 text-white px-1.5 py-0.5 rounded">Bạn</span>
+                        </div>
+                    </div>
+                ` : `
+                    <!-- Voice Call Mode Display -->
+                    <div class="relative ${State.callActive ? 'animate-bounce' : ''}">
+                        <img src="${l?.avatar_url || ''}"
+                             class="w-36 h-36 md:w-44 md:h-44 rounded-full object-cover shadow-2xl avatar-glow border-4 border-white/60 dark:border-white/20" />
+                    </div>
+
+                    <!-- Animated Sound Wave Visualizer -->
+                    <div class="sound-wave mt-6 ${State.callActive ? 'opacity-100' : 'opacity-20'}">
+                        <div class="sound-bar"></div>
+                        <div class="sound-bar"></div>
+                        <div class="sound-bar"></div>
+                        <div class="sound-bar"></div>
+                        <div class="sound-bar"></div>
+                        <div class="sound-bar"></div>
+                        <div class="sound-bar"></div>
+                    </div>
+                `}
 
                 <!-- Live Voice Transcript / Subtitle -->
                 <div class="mt-4 px-6 py-3 rounded-2xl glass-panel max-w-md text-center border border-white/30 text-xs md:text-sm text-gray-700 dark:text-gray-200 min-h-[48px] flex items-center justify-center">
-                    ${escapeHtml(State.callTranscript || 'Nói chuyện trực tiếp qua micro, AI sẽ lắng nghe và tự động phản hồi bằng giọng nói!')}
+                    ${escapeHtml(State.callTranscript || (isVideo ? 'Bật micro để trò chuyện video trực tiếp với người yêu AI!' : 'Nói chuyện trực tiếp qua micro, AI sẽ lắng nghe và tự động phản hồi bằng giọng nói!'))}
                 </div>
             </div>
 
@@ -950,8 +1133,8 @@ function renderVoiceCallView() {
                     </button>
                 ` : `
                     <button onclick="startVoiceCall()" class="px-8 py-4 rounded-full btn-romantic text-base font-bold flex items-center gap-3 shadow-2xl hover:scale-105 transition">
-                        <span class="text-2xl">📞</span>
-                        <span>Bắt đầu cuộc gọi yêu thương</span>
+                        <span class="text-2xl">${isVideo ? '📹' : '📞'}</span>
+                        <span>${isVideo ? 'Bắt đầu cuộc gọi video yêu thương' : 'Bắt đầu cuộc gọi thoại yêu thương'}</span>
                     </button>
                 `}
             </div>
