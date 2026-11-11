@@ -49,6 +49,89 @@ const AVATAR_PRESETS = [
 // Romantic Stickers
 const ROMANTIC_STICKERS = ['💖', '💕', '🥰', '🥺', '🌹', '✨', '☕', '🍰', '💌', '🌸', '🧸', '🌙', '💤', '😘', '🤗', '🔥'];
 
+// Client-side Mock Fallback for GitHub Pages and Static Hosting
+function handleClientMock(endpoint, options = {}) {
+    const isPost = options.method === 'POST';
+    const body = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : {};
+
+    if (endpoint.startsWith('/api/auth/me')) {
+        const user = JSON.parse(localStorage.getItem('ai_user') || JSON.stringify({
+            id: 1, email: 'demo@lover.ai', display_name: 'Tuấn Anh', role: 'user', job: 'Kỹ sư phần mềm'
+        }));
+        const lover = JSON.parse(localStorage.getItem('ai_lover') || JSON.stringify({
+            id: 1, name: 'Mai Anh', gender: 'female', age: 21,
+            avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
+            style: 'Thanh lịch, dịu dàng', personality: 'Dịu dàng, chu đáo',
+            pronouns_ai: 'em', pronouns_user: 'anh', voice_style: 'Nữ - Ngọt ngào nhẹ nhàng',
+            voice_rate: 1.0, voice_pitch: 1.1, hobbies: 'Nghe nhạc, làm bánh, chụp ảnh',
+            habits: 'Chờ tin nhắn người yêu, nhắc anh uống nước', dislikes: 'Người yêu thức khuya bỏ bữa',
+            first_met_date: '2026-01-01', emotion_state: '{"mood":"happy","affection":95,"jealousy":10,"energy":85}'
+        }));
+        return { user, lover };
+    }
+
+    if (endpoint === '/api/auth/login' || endpoint === '/api/auth/register') {
+        const user = { id: 1, email: body.email || 'demo@lover.ai', display_name: body.display_name || 'Tuấn Anh', role: 'user' };
+        localStorage.setItem('ai_user', JSON.stringify(user));
+        return { token: 'mock_token_demo_123', user };
+    }
+
+    if (endpoint === '/api/chat/send') {
+        const text = (body.content || '').toLowerCase();
+        let reply = "Dạ, em nghe anh đây ạ! Nói chuyện với anh lúc nào em cũng thấy ấm áp và hạnh phúc hết á 💕";
+        if (text.includes('mệt') || text.includes('buồn')) {
+            reply = "Thương anh quá đi mất! 🥺 Anh đừng ôm hết áp lực một mình nha, có em ở đây lắng nghe anh mà. Mau tựa lưng nghỉ ngơi, uống một cốc nước ấm đi anh! 🤗💖";
+        } else if (text.includes('yêu') || text.includes('nhớ')) {
+            reply = "Nghe anh nói mà tim em đập rộn ràng luôn nè! 🥰 Em cũng yêu và nhớ anh nhiều hơn tất cả các vì sao trên trời gộp lại nữa! 💕✨";
+        } else if (text.includes('ảnh')) {
+            reply = "Dạ đây nè anh yêu! Em vừa chụp một tấm selfie gửi riêng cho anh xem đó, anh thấy em thế nào? 🥰";
+        } else if (text.includes('ngủ')) {
+            reply = "Dạ, anh của em ngủ thật ngon nhé! 🌙✨ Đắp chăn ấm nha, chúc anh mơ giấc mơ đẹp và nhớ có em trong mơ đấy! Yêu anh moah moah! 💤💋";
+        }
+        const msg = {
+            id: Date.now(),
+            sender: 'ai',
+            message_type: 'text',
+            content: reply,
+            media_url: text.includes('ảnh') ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' : '',
+            created_at: new Date().toISOString()
+        };
+        return { message: msg, emotion: { mood: 'happy', affection: 96, jealousy: 10, energy: 90 } };
+    }
+
+    if (endpoint.startsWith('/api/chat/messages')) {
+        return { messages: State.messages.length ? State.messages : [
+            { id: 1, sender: 'ai', message_type: 'text', content: 'Chào anh yêu! ✨ Hôm nay của anh thế nào rồi? Em nhớ anh cả ngày hôm nay đấy!', created_at: new Date().toISOString() }
+        ]};
+    }
+
+    if (endpoint.startsWith('/api/memories')) {
+        return { memories: [
+            { id: 1, category: 'important_date', key_fact: 'Sinh nhật của anh là ngày 15/08', detail: 'Thích bánh kem dâu ít ngọt', importance: 5 },
+            { id: 2, category: 'preference', key_fact: 'Anh làm nghề Kỹ sư phần mềm', detail: 'Hay phải thức khuya nên em cần nhắc anh nghỉ ngơi', importance: 4 },
+            { id: 3, category: 'promise', key_fact: 'Anh từng hứa sẽ dắt em đi Đà Lạt ngắm sương mù', detail: 'Lời hứa đáng nhớ nhất giữa hai đứa', importance: 5 }
+        ]};
+    }
+
+    if (endpoint.startsWith('/api/diary')) {
+        return { diaries: [
+            { id: 1, title: 'Ngày đầu tiên chúng mình bên nhau ✨', content: 'Hôm nay là ngày đầu tiên chúng ta bắt đầu câu chuyện tình yêu này. Mai Anh cảm thấy thật may mắn và ấm áp khi được gặp anh!', entry_date: '2026-01-01', mood: 'Hạnh phúc', photo_url: 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=800&q=80' }
+        ]};
+    }
+
+    if (endpoint.startsWith('/api/album')) {
+        return { photos: [
+            { id: 1, caption: 'Bức ảnh selfie đầu tiên em gửi cho anh 💕', image_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' }
+        ]};
+    }
+
+    if (endpoint === '/api/voice/process-turn') {
+        return { transcript: body.transcript, reply: `Em nghe anh nói rồi nè: "${body.transcript}". Lúc nào em cũng ở bên lắng nghe anh mà! 💕` };
+    }
+
+    return { status: 'success' };
+}
+
 // API Client Helper
 async function api(endpoint, options = {}) {
     const headers = options.headers || {};
@@ -63,6 +146,9 @@ async function api(endpoint, options = {}) {
 
     try {
         const res = await fetch(endpoint, options);
+        if (res.status === 404 || (!res.ok && (window.location.hostname.includes('github.io') || window.location.protocol === 'file:'))) {
+            return handleClientMock(endpoint, options);
+        }
         if (res.status === 401) {
             logout();
             throw new Error('Phiên đăng nhập đã hết hạn');
@@ -73,6 +159,9 @@ async function api(endpoint, options = {}) {
         }
         return data;
     } catch (err) {
+        if (window.location.hostname.includes('github.io') || window.location.protocol === 'file:') {
+            return handleClientMock(endpoint, options);
+        }
         console.error(`API Error [${endpoint}]:`, err);
         throw err;
     }

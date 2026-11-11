@@ -1,0 +1,236 @@
+/* Virtual AI Lover - Modern Romantic Glassmorphism Stylesheet */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap');
+
+:root {
+  --bg-gradient: linear-gradient(135deg, #fff1f5 0%, #fdf4ff 50%, #f5f3ff 100%);
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-shadow: 0 16px 40px 0 rgba(236, 72, 153, 0.09);
+  --text-main: #1e1b4b;
+  --text-muted: #6b7280;
+  --primary-pink: #ec4899;
+  --primary-purple: #8b5cf6;
+  --accent-glow: rgba(236, 72, 153, 0.35);
+}
+
+.dark {
+  --bg-gradient: radial-gradient(circle at 20% 20%, #1a102f 0%, #0c0a1a 60%, #05050b 100%);
+  --glass-bg: rgba(22, 17, 39, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 16px 45px 0 rgba(0, 0, 0, 0.6);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent-glow: rgba(168, 85, 247, 0.4);
+}
+
+* {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-gradient);
+  color: var(--text-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  transition: background 0.4s ease, color 0.3s ease;
+}
+
+.serif-font {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+/* Glassmorphism Card Utilities */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: 1.5rem;
+}
+
+.glass-pill {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.dark .glass-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Romantic Gradient Buttons */
+.btn-romantic {
+  background: linear-gradient(135deg, #ec4899 0%, #d946ef 50%, #8b5cf6 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(236, 72, 153, 0.38);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-romantic:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(236, 72, 153, 0.5);
+}
+.btn-romantic:active {
+  transform: translateY(0);
+}
+
+/* Glowing Aura for Avatars */
+.avatar-glow {
+  position: relative;
+}
+.avatar-glow::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #ec4899, #a855f7, #6366f1);
+  z-index: -1;
+  opacity: 0.8;
+  filter: blur(8px);
+  animation: auraPulse 4s infinite alternate;
+}
+
+@keyframes auraPulse {
+  0% { transform: scale(0.98); opacity: 0.6; }
+  100% { transform: scale(1.06); opacity: 0.95; }
+}
+
+/* Chat bubble styling */
+.bubble-ai {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
+}
+
+.bubble-user {
+  background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 18px rgba(219, 39, 119, 0.3);
+}
+
+/* Video Call Picture-in-Picture window */
+.pip-video-window {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 140px;
+  height: 190px;
+  border-radius: 1.25rem;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  z-index: 30;
+  transition: all 0.3s ease;
+}
+.pip-video-window:hover {
+  transform: scale(1.04);
+  border-color: #ec4899;
+}
+.mirror-video {
+  transform: scaleX(-1);
+}
+
+/* Video call canvas */
+#voice-canvas {
+  width: 100%;
+  max-width: 480px;
+  height: 60px;
+}
+
+/* Polaroid style photo frames */
+.polaroid-card {
+  background: #ffffff;
+  padding: 10px 10px 24px 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+.dark .polaroid-card {
+  background: #1f1b33;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+}
+.polaroid-card:hover {
+  transform: translateY(-4px) rotate(1deg);
+  box-shadow: 0 16px 35px rgba(236, 72, 153, 0.2);
+}
+
+/* Sound Wave Animation for Voice Call */
+.sound-wave {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 48px;
+}
+
+.sound-bar {
+  width: 5px;
+  background: linear-gradient(to top, #ec4899, #8b5cf6);
+  border-radius: 9999px;
+  animation: wavePulse 1.2s infinite ease-in-out;
+}
+
+.sound-bar:nth-child(1) { height: 25%; animation-delay: 0.1s; }
+.sound-bar:nth-child(2) { height: 65%; animation-delay: 0.3s; }
+.sound-bar:nth-child(3) { height: 98%; animation-delay: 0.2s; }
+.sound-bar:nth-child(4) { height: 45%; animation-delay: 0.4s; }
+.sound-bar:nth-child(5) { height: 85%; animation-delay: 0.15s; }
+.sound-bar:nth-child(6) { height: 35%; animation-delay: 0.35s; }
+.sound-bar:nth-child(7) { height: 75%; animation-delay: 0.25s; }
+
+@keyframes wavePulse {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+
+/* Love level EXP bar glow */
+.exp-bar-glow {
+  background: linear-gradient(90deg, #ec4899, #a855f7, #3b82f6);
+  background-size: 200% 200%;
+  animation: expGradient 3s ease infinite;
+}
+
+@keyframes expGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Floating romantic heart effect */
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(0.8) rotate(0deg);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(-100px) scale(1.3) rotate(25deg);
+    opacity: 0;
+  }
+}
+
+.floating-heart {
+  position: absolute;
+  pointer-events: none;
+  animation: floatUp 2.5s ease-out forwards;
+  z-index: 9999;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(236, 72, 153, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(236, 72, 153, 0.7);
+}
